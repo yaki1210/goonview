@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>GoonView</title>
+    <style>
+      body {
+        font: 14px/1.5 system-ui, sans-serif;
+        margin: 16px;
+        min-width: 280px;
+      }
+      label {
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+        margin: 10px 0;
+      }
+      p {
+        color: #555;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1 style="font-size: 16px">GoonView</h1>
+    <label>
+      <input type="checkbox" id="interceptEnabled" />
+      <span>启用点击拦截（左键在当前页打开查看器）</span>
+    </label>
+    <label>
+      <input type="checkbox" id="interceptXfAttachments" />
+      <span>拦截论坛附件（关闭后附件走 XenForo 自带灯箱）</span>
+    </label>
+    <p>调试：在论坛页控制台执行 <code>localStorage.setItem('goonview-debug','1')</code> 后刷新，可看采集直方图。</p>
+    <script type="module" src="./index.ts"></script>
+  </body>
+</html>
