@@ -9,6 +9,7 @@
 - 工具栏「在新标签打开」按钮才跳走
 - 滚轮缩放，放大后可拖动
 - 中键 / Ctrl / Cmd / Shift+点击仍用浏览器原生新标签
+- 帖内 turbo.cr 视频画面按站点当前尺寸放大到 2 倍。播放还是站点自己的播放器
 
 ## 开发
 
@@ -39,6 +40,11 @@ localStorage.setItem('goonview-debug', '1')
 ## 权限
 
 - `storage`：两个开关
-- `https://goonbox.cr/*`：仅在「加载原图」需要 API 时由后台请求 `GET /api/images/{id}`
+- `https://goonbox.cr/*` 以及 GoonBox CDN：加载原图 API，以及另存为时读取图片字节
+- 另存为用 `showSaveFilePicker({ id: 'goonview-save' })` 记住上次目录；**不会**出现在 Chrome 最近下载里（扩展无法把自写文件登记进下载记录）
 
 不会注入 goonbox 页面，不会申请 `<all_urls>`。
+
+## 当前范围
+
+看图是 Telegram 风格的预览。turbo.cr 嵌入只放大显示尺寸，不拦截播放、不收藏、不下载。收藏夹 / 按人物归档 / 库页是未来项，见 [`docs/design.md`](docs/design.md) 的 Future work，先不实现。Overlay 里的「另存为」只是当前这张图的系统保存对话框。

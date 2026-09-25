@@ -8,11 +8,16 @@ import {
   isAllowedApiUrl,
   isFamilyHost,
   isGoonBoxHost,
+  isSafeDownloadUrl,
   isSafeHttpsUrl,
   isXfAttachmentUrl,
   parseGoonBoxId,
   resolveOriginal,
+  sanitizeDownloadFilename,
   stripCheveretoSizeSuffix,
+  suggestedDownloadFilename,
+  arrayBufferToBase64,
+  base64ToUint8Array,
   unwrapRedirect,
   unwrapXfProxy,
 } from './original';
@@ -124,6 +129,22 @@ describe('hasImageExtension / isSafeHttpsUrl / isAllowedApiUrl', () => {
     expect(isSafeHttpsUrl('javascript:alert(1)')).toBe(false);
     expect(isSafeHttpsUrl('https://user:pass@goonbox.cr/x')).toBe(false);
     expect(isSafeHttpsUrl('https://cdn.example/a.jpg')).toBe(true);
+  });
+
+  it('save-as url and filename', () => {
+    expect(isSafeDownloadUrl('javascript:alert(1)')).toBe(false);
+    expect(isSafeDownloadUrl('data:image/png;base64,xx')).toBe(false);
+    expect(isSafeDownloadUrl('https://cdn.example/a.jpg')).toBe(true);
+    expect(sanitizeDownloadFilename('../../etc/passwd')).toBe('passwd.jpg');
+    expect(sanitizeDownloadFilename('foo.webp')).toBe('foo.webp');
+    expect(suggestedDownloadFilename('https://x.cr/images4/a.md.jpg?x=1')).toBe('a.md.jpg');
+  });
+
+  it('roundtrips image bytes through base64 for extension messaging', () => {
+    const src = new Uint8Array([0xff, 0xd8, 0xff, 0x00, 0x7b]);
+    const b64 = arrayBufferToBase64(src.buffer);
+    expect(b64).not.toContain('object');
+    expect(Array.from(base64ToUint8Array(b64))).toEqual(Array.from(src));
   });
 
   it('allows only goonbox.cr /api/images/{id}', () => {

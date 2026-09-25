@@ -6,8 +6,8 @@
 | **产品** | GoonView 浏览器扩展 |
 | **作者** | TBD |
 | **日期** | 2026-09-19 |
-| **状态** | Draft（rev 4：overlay 新标签按钮 + 滚轮缩放拖动；pixhost/imgbox v1 不做专用解析） |
-| **仓库** | `E:\project\goonview`（当前为空的 greenfield） |
+| **状态** | Draft（rev 5：v1 冻结为图片预览；收藏/下载为未排期 backlog；视频不经插件） |
+| **仓库** | `E:\project\goonview` |
 | **目标平台** | Chrome / Edge，Manifest V3 |
 | **文档语言** | 中文（代码标识符、URL、CSS 选择器、文件路径保持英文） |
 
@@ -118,11 +118,12 @@ GoonView 是一个 **Manifest V3 内容脚本优先** 的 Chrome/Edge 扩展：�
 
 - 不注入 `goonbox.cr` 页面（用户已经落到图床页 = 超出 v1）。
 - 不抓取帖子其他分页 / 不跨页拼图库 / 不爬 `/a/{id}` 相册内容。
-- 不处理视频、下载全部。
+- **视频：不拦截、不做播放器、不收藏、不下载。** 帖内视频继续用站点自带播放器；收藏与下载不走本插件。
 - 不把纯文本外链（`link--external` 且没有已显示的 `<img>`）纳入图库。
 - 不把非 `img.bbImage` 的正文装饰图纳入默认图库（debug 补选除外）。
 - 不发布 Chrome Web Store / 不打包 Firefox 为 v1 交付物。
 - 不为 pixhost.to / imgbox.com 做 HTML 抓取（Host coverage；预览与「新标签打开」仍可用）。
+- **不做收藏夹 / 库页 / 按人物归档 / 下载管理**（见 Future work；方向未锁，不排期）。
 - 不提供复杂设置页、账号、云同步以外的产品表面。
 - 不申请 `webRequest` / `declarativeNetRequest` / `webNavigation` 去取消导航。
 
@@ -130,7 +131,7 @@ GoonView 是一个 **Manifest V3 内容脚本优先** 的 Chrome/Edge 扩展：�
 
 ## Key Decisions
 
-本节固化 D1–D12。实现与评审以本节为准；若需推翻，先改文档再改代码。
+本节固化 D1–D13。实现与评审以本节为准；若需推翻，先改文档再改代码。
 
 ### D1 — Chrome / Edge MV3 优先
 
@@ -323,6 +324,7 @@ Capture 先于 Fancybox 冒泡。不加载 XF lightbox CSS/JS。默认（`interc
 - **`www.simpcity.cr`：** v1 apex only。
 - **循环翻页：** 循环。Post-v1 若要改成到头停下，一行之差。
 - **pixhost / imgbox：** v1 无专用解析。见 Host coverage。
+- **视频：** 当作页面原有内容，GoonView 当没看见。
 
 ### D12 — Overlay 滚轮缩放与拖动平移（v1）
 
@@ -351,6 +353,12 @@ Capture 先于 Fancybox 冒泡。不加载 XF lightbox CSS/JS。默认（`interc
 ```
 
 **理由：** 用户明确要求 overlay 内滚轮放大后拖动查看；这与「点击加载原图」用位移阈值共存。
+
+### D13 — v1 产品身份：图片预览插件
+
+GoonView v1 只做一件事：在帖内把已显示的图片用一致的 overlay 看完（预览 → 可选原图 → 缩放/切图/新标签）。这条路径已经完整，后续功能不得破坏它的一致性。
+
+收藏夹、下载、按人物文件夹、库页搜索，一律放 Future work，**写下来但不实现**，直到单独开一轮把数据模型、磁盘权限和去重规则锁清。视频永远不进入这条 overlay，也不进入未来的图库。
 
 ---
 
@@ -1130,6 +1138,8 @@ v1 以 **未打包扩展** 分发，不走 CWS。
 6. ~~CDN `host_permissions`~~ **已决定：v1 不申请 CDN；PR4 仅 `goonbox.cr`。**
 7. ~~overlay 缩放~~ **已决定：v1 滚轮缩放 + 放大后拖动（D12）。**
 8. ~~新标签逃生舱~~ **已决定：overlay `open-tab` 按钮（`arrow-up-right-from-square`）；帖内左键不跳。**
+9. ~~视频~~ **已决定：不做播放器；不收藏、不下载视频。站点播放器够用。**
+10. **收藏夹 / 下载 / 库页：** 仅 backlog（见 Future work）。未锁：磁盘一份还是每夹一份、未选根目录时收藏是否可先用。**在锁清之前不写代码。**
 
 ---
 
@@ -1219,4 +1229,43 @@ v1 以 **未打包扩展** 分发，不走 CWS。
 - **标题：** `feat: options page and confirm host_permissions`
 - **影响文件：** `src/options/*`、`src/shared/settings.ts`、`manifest.json`（加 `options_ui`；**grep `fetch` 后不得把 CDN host 加回来**）、`README.md`
 - **依赖：** PR5
-- **说明：** 两个 checkbox 的 options_ui；storage 热更新。结束态权限 = `storage` + `https://goonbox.cr/*`。v1 冻结：无视频、无下载全部、无 pixhost/imgbox HTML 抓取、无 Firefox 打包、无 `<all_urls>`。缩放与 `open-tab` 已在前面的 PR 交付。
+- **说明：** 两个 checkbox 的 options_ui；storage 热更新。结束态权限 = `storage` + `https://goonbox.cr/*`。v1 冻结：无视频、无收藏夹、无下载管理、无 pixhost/imgbox HTML 抓取、无 Firefox 打包、无 `<all_urls>`。缩放与 `open-tab` 已在前面的 PR 交付。
+
+---
+
+## Future work（backlog，未排期，先不实现）
+
+方向记录，**不够清晰，禁止当当前迭代做。** 实现前必须再开一轮把未锁项写成 Key Decisions。不得削弱 v1 overlay 的一致性。
+
+### 明确不做（即使做库页也不做）
+
+- **视频播放器：** 站点自带播放器够用，不拦截 `<video>` / 嵌入播放器。帖内 `turbo.cr/embed/` 把 iframe 的布局宽高乘 2，并在嵌入页里让 `video` 铺满该视口（`src/content/video-preview.ts`，常量 `VIDEO_ZOOM`）。不用 CSS `zoom`：zoom 只放大按钮，嵌入页视口不变，画面不跟着变大。这是显示尺寸，不是播放器。
+- **视频的收藏与下载：** 不经过本插件。库、标签、磁盘文件夹都只针对图片。
+- 不为视频做 overlay、不把视频写进同一套 `GalleryItem`。
+
+### 可能做：插件独立页的图片收藏夹 + 下载
+
+浏览与管理在 **扩展自己的整页**（工具栏打开），不塞进帖内 overlay。Overlay 至多一个「收当前这张」入口。
+
+当时讨论过、但未锁定的意向：
+
+| 点 | 意向（未锁） |
+| --- | --- |
+| 库页展示 | 未下载显示收藏时拷下的预览；已下载显示原图 |
+| 默认收藏夹名 | 用帖子 URL slug（比标题稳），如 `/threads/some-name.12345/` → `some-name` |
+| 新建规则 | 第一次用某名字即建夹；之后同名自动归入 |
+| 保存 UI | 输入框兼下拉；可多选，一张图进多个夹；可自定义名 |
+| Message / Labels | 可选；挂在图上不是挂在夹上 |
+| 搜索 | 可限定收藏夹、按标签、关键词（备注/标签/夹名/URL） |
+| 下载位置 | 用户自选根目录（File System Access）；`chrome.downloads` 不够用（写完读不回，库页无法预览原图） |
+| 预览持久化 | 点收藏时从帖内已显示的 `<img>` 拷像素，避免扩展页热链 403 |
+| 去重 | 解包后的图片 URL |
+
+### 仍未锁、挡住开工的问题
+
+1. 一张图进多个夹时，磁盘上是一份文件还是每个夹一份。
+2. 还没选下载根目录时，收藏是否仍可先只用插件库（有预览）。
+3. 根目录是「库的源」还是「可选导出」。
+4. 合集帖 / Request 帖的 slug 不好看时，要不要强制自定义名。
+
+未锁清之前：**零代码、不改 manifest 权限、不在 overlay 加星标。**

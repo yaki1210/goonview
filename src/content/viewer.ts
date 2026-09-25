@@ -1,20 +1,25 @@
 import type { GalleryItem, LoadKind, ResolvePhase } from '../shared/types';
 import { getItems, onGalleryChange } from './collector';
 import {
+  base64ToUint8Array,
   copyTarget,
   fetchGoonBoxImage,
+  isSafeDownloadUrl,
   isSafeHttpsUrl,
   openTabTarget,
   resolveOriginal,
+  suggestedDownloadFilename,
 } from './original';
 import css from './styles.css?raw';
 
 const OPEN_TAB_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M320 0c-17.7 0-32 14.3-32 32s14.3 32 32 32h82.7L201.4 265.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0L448 109.3V192c0 17.7 14.3 32 32 32s32-14.3 32-32V32c0-17.7-14.3-32-32-32H320zM80 32C35.8 32 0 67.8 0 112V432c0 44.2 35.8 80 80 80H400c44.2 0 80-35.8 80-80V352c0-17.7-14.3-32-32-32s-32 14.3-32 32v80c0 8.8-7.2 16-16 16H80c-8.8 0-16-7.2-16-16V112c0-8.8 7.2-16 16-16h80c17.7 0 32-14.3 32-32s-14.3-32-32-32H80z"/></svg>`;
+const SPARKLES_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M327.5 85.2c-4.5 1.7-7.5 6-7.5 10.8s3 9.1 7.5 10.8L384 128l21.2 56.5c1.7 4.5 6 7.5 10.8 7.5s9.1-3 10.8-7.5L448 128l56.5-21.2c4.5-1.7 7.5-6 7.5-10.8s-3-9.1-7.5-10.8L448 64 426.8 7.5C425.1 3 420.8 0 416 0s-9.1 3-10.8 7.5L384 64 327.5 85.2zM205.1 73.3c-2.6-5.7-8.3-9.3-14.5-9.3s-11.9 3.6-14.5 9.3L120 184.4 9.3 234.6C3.6 237.1 0 242.9 0 249.5s3.6 12.3 9.3 14.9L120 314.6 176.1 425.3c2.6 5.7 8.3 9.3 14.5 9.3s11.9-3.6 14.5-9.3L261.2 314.6 371.9 264.3c5.7-2.6 9.3-8.3 9.3-14.5s-3.6-11.9-9.3-14.5L261.2 184.4 205.1 73.3zM384 384l-21.2 56.5c-1.7 4.5-6 7.5-10.8 7.5s-9.1-3-10.8-7.5L320 384l-56.5-21.2c-4.5-1.7-7.5-6-7.5-10.8s3-9.1 7.5-10.8L320 320l21.2-56.5c1.7-4.5 6-7.5 10.8-7.5s9.1 3 10.8 7.5L384 320l56.5 21.2c4.5 1.7 7.5 6 7.5 10.8s-3 9.1-7.5 10.8L384 384z"/></svg>`;
 const CHEVRON_L = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 5.5 8 12l7.5 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const CHEVRON_R = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 5.5 16 12l-7.5 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const X_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
 const FULL_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
 const COPY_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 16V6a2 2 0 0 1 2-2h10" fill="none" stroke="currentColor" stroke-width="2"/></svg>`;
+const DOWNLOAD_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M7 11l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 21h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
 
 let host: HTMLDivElement | null = null;
 let shadow: ShadowRoot | null = null;
@@ -48,6 +53,10 @@ let pointer: {
   onMedia: boolean;
 } | null = null;
 let toastTimer = 0;
+let pageWheelAcc = 0;
+let pageWheelLockUntil = 0;
+const PAGE_WHEEL_THRESHOLD = 80;
+const PAGE_WHEEL_COOLDOWN_MS = 140;
 
 function currentItem(): GalleryItem | undefined {
   return getItems()[index];
@@ -103,16 +112,14 @@ function ensureHost(): NonNullable<typeof els> {
   toolbar.className = 'toolbar';
   const counter = document.createElement('span');
   counter.className = 'counter';
-  const loadOriginal = document.createElement('button');
-  loadOriginal.type = 'button';
-  loadOriginal.className = 'load-original';
-  loadOriginal.textContent = '加载原图';
+  const loadOriginal = svgButton('load-original', '加载原图', SPARKLES_SVG);
   const fullscreen = svgButton('fullscreen', '全屏', FULL_SVG);
   const openTab = svgButton('open-tab', '在新标签打开', OPEN_TAB_SVG);
   const copy = svgButton('copy-url', '复制链接', COPY_SVG);
+  const download = svgButton('download', '另存为', DOWNLOAD_SVG);
   const closeBtn = svgButton('close', '关闭', X_SVG);
-  toolbar.append(counter, loadOriginal, fullscreen, openTab, copy, closeBtn);
-  stage.append(media, spinner, error, prev, next, toolbar);
+  toolbar.append(counter, loadOriginal, download, copy, openTab, fullscreen);
+  stage.append(media, spinner, error, prev, next, toolbar, closeBtn);
 
   const toast = document.createElement('div');
   toast.className = 'toast';
@@ -143,6 +150,10 @@ function ensureHost(): NonNullable<typeof els> {
   copy.addEventListener('click', (e) => {
     e.stopPropagation();
     void copyUrl();
+  });
+  download.addEventListener('click', (e) => {
+    e.stopPropagation();
+    void saveImageAs();
   });
   closeBtn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -216,9 +227,21 @@ function clampPan(): void {
   panY = Math.min(maxY, Math.max(-maxY, panY));
 }
 
-function onWheel(ev: WheelEvent): void {
-  ev.preventDefault();
-  if (!open || !els) return;
+function elementAt(ev: MouseEvent): Element | null {
+  if (shadow && typeof shadow.elementFromPoint === 'function') {
+    return shadow.elementFromPoint(ev.clientX, ev.clientY);
+  }
+  return ev.target instanceof Element ? ev.target : null;
+}
+
+function wheelDeltaY(ev: WheelEvent): number {
+  if (ev.deltaMode === 1) return ev.deltaY * 16;
+  if (ev.deltaMode === 2) return ev.deltaY * 80;
+  return ev.deltaY;
+}
+
+function zoomFromWheel(ev: WheelEvent): void {
+  if (!els) return;
   const old = scale;
   const factor = ev.deltaY < 0 ? 1.1 : 1 / 1.1;
   const next = Math.min(8, Math.max(1, old * factor));
@@ -237,6 +260,28 @@ function onWheel(ev: WheelEvent): void {
     clampPan();
   }
   applyTransform();
+}
+
+function resetPageWheel(): void {
+  pageWheelAcc = 0;
+}
+
+function onWheel(ev: WheelEvent): void {
+  ev.preventDefault();
+  if (!open || !els) return;
+  if (isMediaTarget(elementAt(ev))) {
+    resetPageWheel();
+    zoomFromWheel(ev);
+    return;
+  }
+  pageWheelAcc += wheelDeltaY(ev);
+  if (Math.abs(pageWheelAcc) < PAGE_WHEEL_THRESHOLD) return;
+  const dir = pageWheelAcc > 0 ? 1 : -1;
+  resetPageWheel();
+  const now = performance.now();
+  if (now < pageWheelLockUntil) return;
+  pageWheelLockUntil = now + PAGE_WHEEL_COOLDOWN_MS;
+  step(dir);
 }
 
 function onTouchMove(ev: TouchEvent): void {
@@ -362,6 +407,127 @@ async function copyUrl(): Promise<void> {
   }
 }
 
+async function blobFromDisplayedImage(): Promise<Blob | null> {
+  const img = els?.media;
+  if (!img || !img.naturalWidth) return null;
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0);
+    return await new Promise((resolve) => {
+      canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.95);
+    });
+  } catch {
+    return null;
+  }
+}
+
+function bytesLookLikeImage(buf: ArrayBuffer): boolean {
+  const u = new Uint8Array(buf);
+  if (u.length < 12) return false;
+  const head = new TextDecoder('latin1').decode(u.subarray(0, 16));
+  if (head.includes('[object') || head.startsWith('<!')) return false;
+  if (u[0] === 0xff && u[1] === 0xd8) return true;
+  if (u[0] === 0x89 && u[1] === 0x50) return true;
+  if (u[0] === 0x47 && u[1] === 0x49) return true;
+  if (head.startsWith('RIFF')) return true;
+  return u[0] !== 0x7b;
+}
+
+async function getImageBlob(url: string): Promise<Blob | null> {
+  try {
+    const res = await chrome.runtime.sendMessage({ type: 'FETCH_IMAGE_BYTES', url });
+    if (res?.ok && typeof res.base64 === 'string' && res.base64.length > 0) {
+      const bytes = base64ToUint8Array(res.base64);
+      const copy = new ArrayBuffer(bytes.byteLength);
+      new Uint8Array(copy).set(bytes);
+      if (bytesLookLikeImage(copy)) {
+        return new Blob([copy], { type: res.mime || 'application/octet-stream' });
+      }
+    }
+  } catch {
+    /* SW fetch may lack host permission */
+  }
+  try {
+    const r = await fetch(url, { credentials: 'omit', cache: 'force-cache' });
+    if (r.ok) {
+      const buf = await r.arrayBuffer();
+      if (bytesLookLikeImage(buf)) return new Blob([buf], { type: r.headers.get('content-type') || '' });
+    }
+  } catch {
+    /* page CORS */
+  }
+  return blobFromDisplayedImage();
+}
+
+async function saveImageAs(): Promise<void> {
+  const url = els?.media.currentSrc || els?.media.src || '';
+  if (!isSafeDownloadUrl(url)) {
+    showToast('没有可保存的图片');
+    return;
+  }
+  const filename = suggestedDownloadFilename(url);
+  const picker = (
+    window as Window & {
+      showSaveFilePicker?: (opts: {
+        id?: string;
+        suggestedName?: string;
+        startIn?: string;
+        types?: { description: string; accept: Record<string, string[]> }[];
+      }) => Promise<{
+        createWritable(): Promise<{
+          write(data: BufferSource | Blob): Promise<void>;
+          close(): Promise<void>;
+        }>;
+      }>;
+    }
+  ).showSaveFilePicker;
+  if (typeof picker !== 'function') {
+    showToast('当前浏览器不支持另存为');
+    return;
+  }
+  const blobPromise = getImageBlob(url);
+  try {
+    const handle = await picker({
+      id: 'goonview-save',
+      suggestedName: filename,
+      startIn: 'downloads',
+      types: [
+        {
+          description: 'Image',
+          accept: {
+            'image/jpeg': ['.jpg', '.jpeg'],
+            'image/png': ['.png'],
+            'image/webp': ['.webp'],
+            'image/gif': ['.gif'],
+            'image/bmp': ['.bmp'],
+            'image/avif': ['.avif'],
+          },
+        },
+      ],
+    });
+    const blob = await blobPromise;
+    if (!blob) {
+      showToast('无法读取图片');
+      return;
+    }
+    const buf = await blob.arrayBuffer();
+    if (!bytesLookLikeImage(buf)) {
+      showToast('图片数据无效');
+      return;
+    }
+    const writable = await handle.createWritable();
+    await writable.write(buf);
+    await writable.close();
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') return;
+    showToast(e instanceof Error ? e.message : String(e));
+  }
+}
+
 function setBusy(busy: boolean, err?: string): void {
   if (!els) return;
   els.spinner.hidden = !busy;
@@ -380,7 +546,9 @@ function updateLoadButton(): void {
   const ready = item?.originalState === 'ready';
   const unavailable = item?.originalState === 'unavailable';
   els.loadOriginal.disabled = ready || unavailable || item?.originalState === 'resolving';
-  els.loadOriginal.textContent = ready ? '原图' : unavailable ? '无法加载原图' : '加载原图';
+  const label = ready ? '已是原图' : unavailable ? '无法加载原图' : '加载原图';
+  els.loadOriginal.setAttribute('aria-label', label);
+  els.loadOriginal.title = label;
 }
 
 function preloadNeighbors(): void {
@@ -491,7 +659,7 @@ async function applyResult(
       fail('api');
       return;
     }
-    const url = res.data.image?.original_url ?? res.data.image?.url;
+    const url = res.data?.image?.original_url ?? res.data?.image?.url;
     if (!isSafeHttpsUrl(url)) {
       fail('https-check');
       return;
@@ -538,6 +706,7 @@ export function openViewer(item: GalleryItem): void {
   savedOverflow = document.documentElement.style.overflow;
   document.documentElement.style.overflow = 'hidden';
   window.addEventListener('keydown', onKey, true);
+  resetPageWheel();
   render(true);
 }
 
@@ -545,6 +714,7 @@ export function closeViewer(): void {
   if (!open) return;
   open = false;
   loadGen += 1;
+  resetPageWheel();
   resetTransform();
   if (els) {
     els.media.removeAttribute('src');

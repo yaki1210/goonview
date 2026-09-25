@@ -6,7 +6,12 @@ export default defineManifest({
   version: '0.1.0',
   description: 'In-page Telegram-style image viewer for simpcity.cr',
   permissions: ['storage'],
-  host_permissions: ['https://goonbox.cr/*'],
+  host_permissions: [
+    'https://goonbox.cr/*',
+    'https://*.cuckcapital.cr/*',
+    'https://*.selti-delivery.ru/*',
+    'https://simpcity.cr/*',
+  ],
   background: {
     service_worker: 'src/background/index.ts',
     type: 'module',
@@ -17,6 +22,12 @@ export default defineManifest({
       js: ['src/content/index.ts'],
       run_at: 'document_start',
       all_frames: false,
+    },
+    {
+      matches: ['https://turbo.cr/embed/*'],
+      js: ['src/content/embed.ts'],
+      run_at: 'document_start',
+      all_frames: true,
     },
   ],
   options_ui: {

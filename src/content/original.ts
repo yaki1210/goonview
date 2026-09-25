@@ -133,6 +133,72 @@ export function isSafeHttpsUrl(raw: unknown): raw is string {
   }
 }
 
+export function isSafeDownloadUrl(raw: unknown): raw is string {
+  if (typeof raw !== 'string' || raw.startsWith('data:') || raw.startsWith('blob:')) return false;
+  try {
+    const u = new URL(raw);
+    if (u.username || u.password) return false;
+    return u.protocol === 'https:' || u.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
+export function sanitizeDownloadFilename(name: string): string {
+  const base = name.replace(/\\/g, '/').split('/').pop() ?? 'image';
+  let last = base.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/^\.+/, '').slice(0, 180);
+  if (!last) last = 'image';
+  if (!/\.(jpe?g|png|gif|webp|avif|bmp)$/i.test(last)) last += '.jpg';
+  return last;
+}
+
+export function suggestedDownloadFilename(url: string): string {
+  let last = 'image';
+  try {
+    last = decodeURIComponent(new URL(url).pathname.split('/').pop() || 'image');
+  } catch {
+    /* keep default */
+  }
+  return sanitizeDownloadFilename(last);
+}
+
+export function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  const chunks: string[] = [];
+  const size = 0x8000;
+  for (let i = 0; i < bytes.length; i += size) {
+    chunks.push(String.fromCharCode(...bytes.subarray(i, i + size)));
+  }
+  return btoa(chunks.join(''));
+}
+
+export function base64ToUint8Array(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+export async function fetchImageBytes(
+  url: string,
+  fetcher: typeof fetch = fetch,
+): Promise<{ ok: true; buffer: ArrayBuffer; mime: string } | { ok: false; error: string }> {
+  if (!isSafeDownloadUrl(url)) return { ok: false, error: 'bad url' };
+  try {
+    const r = await fetcher(url, { credentials: 'omit', redirect: 'follow', cache: 'force-cache' });
+    if (!r.ok) return { ok: false, error: `HTTP ${r.status}` };
+    const mime = r.headers.get('content-type') || 'application/octet-stream';
+    if (mime.includes('text/html')) return { ok: false, error: 'not an image' };
+    const buffer = await r.arrayBuffer();
+    if (buffer.byteLength < 24 || buffer.byteLength > 80 * 1024 * 1024) {
+      return { ok: false, error: 'bad size' };
+    }
+    return { ok: true, buffer, mime };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
 export function isAllowedApiUrl(raw: string): boolean {
   let u: URL;
   try {

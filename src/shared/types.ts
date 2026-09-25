@@ -20,10 +20,10 @@ export const DEFAULT_SETTINGS: Settings = {
   interceptXfAttachments: true,
 };
 
-export type BgRequest = {
-  type: 'FETCH_GOONBOX_IMAGE';
-  id: string;
-};
+export type BgRequest =
+  | { type: 'FETCH_GOONBOX_IMAGE'; id: string }
+  | { type: 'SAVE_IMAGE_AS'; url: string; filename: string }
+  | { type: 'FETCH_IMAGE_BYTES'; url: string };
 
 export type GoonBoxImagePayload = {
   image?: {
@@ -38,8 +38,8 @@ export type GoonBoxImagePayload = {
 };
 
 export type BgResponse =
-  | { ok: true; data: GoonBoxImagePayload }
-  | { ok: false; error: string };
+  | { ok: true; data?: GoonBoxImagePayload; base64?: string; mime?: string }
+  | { ok: false; error: string; canceled?: boolean };
 
 export type LoadKind = 'strip' | 'api' | 'attachment' | 'direct';
 export type ResolvePhase = 'strip' | 'after-strip-error' | 'after-api-error';
