@@ -4,9 +4,11 @@ import {
   TURBO_IFRAME_SELECTOR,
   VIDEO_ZOOM,
   applyVideoBox,
+  boxOf,
   clearVideoBox,
   fitEmbedVideos,
   scaleTurboIframe,
+  shouldWatchEmbeds,
 } from './video-preview';
 
 function mount(html: string): void {
@@ -41,6 +43,7 @@ describe('video preview', () => {
     const wrapper = document.querySelector('.generic2wide-iframe-div');
     expect(wrapper instanceof HTMLElement && wrapper.style.width).toBe('1200px');
     expect(wrapper instanceof HTMLElement && wrapper.style.height).toBe('680px');
+    expect(wrapper instanceof HTMLElement && wrapper.style.overflow).toBe('');
     expect(button.style.width).toBe('80px');
     expect(EMBED_VIDEO_CSS).toContain('video');
     expect(EMBED_VIDEO_CSS).toContain('width: 100%');
@@ -91,5 +94,33 @@ describe('video preview', () => {
     expect(stage?.style.height).toBe('100%');
     expect(button?.style.width).toBe('80px');
     expect(button?.style.height).toBe('32px');
+  });
+
+  it('does not give a fixed height to a wrapper that also contains thumbnails', () => {
+    mount(`
+      <div class="message-userContent">
+        <div class="generic2wide-iframe-div">
+          <iframe src="data:text/html,https://turbo.cr/embed/abc"></iframe>
+          <img class="bbImage" src="https://x.cr/a.jpg" />
+        </div>
+      </div>
+    `);
+    const iframe = document.querySelector('iframe');
+    const wrap = document.querySelector('.generic2wide-iframe-div');
+    if (!(iframe instanceof HTMLIFrameElement) || !(wrap instanceof HTMLElement)) {
+      throw new Error('fixture missing');
+    }
+    expect(boxOf(iframe)).toBeNull();
+    applyVideoBox(iframe, 600, 340);
+    expect(wrap.style.height).toBe('');
+    expect(iframe.style.height).toBe('680px');
+  });
+
+  it('waits until the document has finished parsing before watching embeds', () => {
+    Object.defineProperty(document, 'readyState', { configurable: true, value: 'loading' });
+    expect(shouldWatchEmbeds(document)).toBe(false);
+    Object.defineProperty(document, 'readyState', { configurable: true, value: 'interactive' });
+    expect(shouldWatchEmbeds(document)).toBe(true);
+    Object.defineProperty(document, 'readyState', { configurable: true, value: 'complete' });
   });
 });

@@ -6,8 +6,9 @@ export default defineManifest({
   version: '0.1.0',
   description: 'In-page Telegram-style image viewer for simpcity.cr',
   permissions: ['storage'],
-  host_permissions: [
-    'https://goonbox.cr/*',
+  host_permissions: ['https://goonbox.cr/*'],
+  // CRXJS ManifestV3 type omits this key; Chrome MV3 accepts it.
+  optional_host_permissions: [
     'https://*.cuckcapital.cr/*',
     'https://*.selti-delivery.ru/*',
     'https://simpcity.cr/*',
@@ -37,4 +38,4 @@ export default defineManifest({
   action: {
     default_title: 'GoonView',
   },
-});
+} as Parameters<typeof defineManifest>[0]);

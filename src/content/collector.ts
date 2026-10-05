@@ -136,19 +136,26 @@ function scheduleRescan(): void {
   debounceTimer = window.setTimeout(() => rescan(), 80);
 }
 
-export function startCollector(): void {
-  const root = document.documentElement;
+function observeGallery(): void {
+  if (observer) return;
   observer = new MutationObserver(() => scheduleRescan());
-  observer.observe(root, {
+  observer.observe(document.documentElement, {
     childList: true,
     subtree: true,
     attributes: true,
     attributeFilter: ['class', 'hidden', 'src'],
   });
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => rescan(), { once: true });
-  } else {
+}
+
+export function startCollector(): void {
+  const boot = () => {
+    observeGallery();
     rescan();
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot, { once: true });
+  } else {
+    boot();
   }
 }
 

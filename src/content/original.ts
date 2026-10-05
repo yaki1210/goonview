@@ -144,6 +144,31 @@ export function isSafeDownloadUrl(raw: unknown): raw is string {
   }
 }
 
+/** Pattern for chrome.permissions; required goonbox.cr is already granted. */
+export function downloadOriginPattern(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    if (u.username || u.password) return null;
+    return `${u.protocol}//${u.hostname}/*`;
+  } catch {
+    return null;
+  }
+}
+
+export async function ensureDownloadOriginAccess(url: string): Promise<boolean> {
+  const pattern = downloadOriginPattern(url);
+  if (!pattern) return false;
+  const api = chrome.permissions;
+  if (!api?.contains || !api.request) return false;
+  try {
+    if (await api.contains({ origins: [pattern] })) return true;
+    return await api.request({ origins: [pattern] });
+  } catch {
+    return false;
+  }
+}
+
 export function sanitizeDownloadFilename(name: string): string {
   const base = name.replace(/\\/g, '/').split('/').pop() ?? 'image';
   let last = base.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/^\.+/, '').slice(0, 180);

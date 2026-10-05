@@ -25,33 +25,45 @@ video {
 
 const BOX_PROPS = ['width', 'height', 'min-width', 'min-height', 'max-width', 'max-height', 'padding', 'overflow', 'flex', 'grid-column'] as const;
 
-function boxOf(iframe: HTMLIFrameElement): HTMLElement | null {
+function isPageShell(el: HTMLElement): boolean {
+  if (el === el.ownerDocument.body || el === el.ownerDocument.documentElement) return true;
+  const cls = el.classList;
+  return (
+    cls.contains('message-userContent') ||
+    cls.contains('bbWrapper') ||
+    cls.contains('message-body') ||
+    cls.contains('message-content') ||
+    cls.contains('message')
+  );
+}
+
+/** Dedicated iframe chrome only. A box that also wraps thumbnails must not be given a fixed height. */
+export function boxOf(iframe: HTMLIFrameElement): HTMLElement | null {
   const named = iframe.closest('.generic2wide-iframe-div');
-  if (named instanceof HTMLElement) return named;
-  const parent = iframe.parentElement;
-  if (!(parent instanceof HTMLElement)) return null;
-  if (parent === iframe.ownerDocument.body) return null;
-  if (parent.classList.contains('message-userContent')) return null;
-  if (parent.classList.contains('bbWrapper') || parent.classList.contains('message-body')) return null;
-  return parent;
+  const candidate = named instanceof HTMLElement ? named : iframe.parentElement;
+  if (!(candidate instanceof HTMLElement)) return null;
+  if (isPageShell(candidate)) return null;
+  if (candidate.querySelector('img.bbImage, .bbImageWrapper')) return null;
+  return candidate;
+}
+
+function sizeBox(box: HTMLElement, widthPx: string, heightPx: string): void {
+  box.style.setProperty('width', widthPx, 'important');
+  box.style.setProperty('height', heightPx, 'important');
+  box.style.setProperty('min-width', widthPx, 'important');
+  box.style.setProperty('min-height', heightPx, 'important');
+  box.style.setProperty('max-width', 'none', 'important');
+  box.style.setProperty('max-height', 'none', 'important');
+  box.style.setProperty('padding', '0', 'important');
+  box.style.setProperty('flex', '0 0 auto', 'important');
+  box.style.setProperty('grid-column', '1 / -1', 'important');
 }
 
 export function applyVideoBox(iframe: HTMLIFrameElement, width: number, height: number): void {
   const widthPx = `${Math.round(width * VIDEO_ZOOM)}px`;
   const heightPx = `${Math.round(height * VIDEO_ZOOM)}px`;
   const box = boxOf(iframe);
-  if (box) {
-    box.style.setProperty('width', widthPx, 'important');
-    box.style.setProperty('height', heightPx, 'important');
-    box.style.setProperty('min-width', widthPx, 'important');
-    box.style.setProperty('min-height', heightPx, 'important');
-    box.style.setProperty('max-width', 'none', 'important');
-    box.style.setProperty('max-height', 'none', 'important');
-    box.style.setProperty('padding', '0', 'important');
-    box.style.setProperty('overflow', 'visible', 'important');
-    box.style.setProperty('flex', '0 0 auto', 'important');
-    box.style.setProperty('grid-column', '1 / -1', 'important');
-  }
+  if (box) sizeBox(box, widthPx, heightPx);
   iframe.style.setProperty('width', widthPx, 'important');
   iframe.style.setProperty('height', heightPx, 'important');
   iframe.style.setProperty('min-width', widthPx, 'important');
@@ -85,35 +97,66 @@ function turboIframes(doc: Document): HTMLIFrameElement[] {
   return [...doc.querySelectorAll(TURBO_IFRAME_SELECTOR)].filter((node) => node instanceof HTMLIFrameElement);
 }
 
+/** Parser-time layout reads make 0-height lazy images look in-view, so the site fetches every thumb. */
+export function shouldWatchEmbeds(doc: Document): boolean {
+  return doc.readyState !== 'loading';
+}
+
 export function startVideoPreview(doc: Document = document): void {
   const root = doc.documentElement;
   if (!root || root.dataset.gvVideoPreview === '1') return;
   root.dataset.gvVideoPreview = '1';
 
   const observed = new WeakSet<HTMLIFrameElement>();
+  let scanTimer = 0;
 
   const watch = (iframe: HTMLIFrameElement) => {
-    if (!observed.has(iframe)) {
-      observed.add(iframe);
-      new ResizeObserver(() => scaleTurboIframe(iframe)).observe(iframe);
-    }
-    scaleTurboIframe(iframe);
+    if (observed.has(iframe)) return;
+    observed.add(iframe);
+    new ResizeObserver(() => scaleTurboIframe(iframe)).observe(iframe);
   };
 
   const scan = () => {
+    if (!shouldWatchEmbeds(doc)) return;
     for (const iframe of turboIframes(doc)) watch(iframe);
   };
 
-  const rescale = () => {
-    for (const iframe of turboIframes(doc)) clearVideoBox(iframe);
-    requestAnimationFrame(scan);
+  const scheduleScan = () => {
+    if (!shouldWatchEmbeds(doc)) return;
+    const win = doc.defaultView;
+    if (!win || scanTimer) return;
+    scanTimer = win.setTimeout(() => {
+      scanTimer = 0;
+      scan();
+    }, 80);
   };
 
-  if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', scan, { once: true });
-  else scan();
+  const rescale = () => {
+    for (const iframe of turboIframes(doc)) {
+      clearVideoBox(iframe);
+      watch(iframe);
+      scaleTurboIframe(iframe);
+    }
+  };
+
+  const attach = () => {
+    scan();
+    new MutationObserver(scheduleScan).observe(root, { childList: true, subtree: true });
+  };
+
+  if (doc.readyState === 'loading') {
+    doc.addEventListener(
+      'DOMContentLoaded',
+      () => {
+        doc.defaultView?.requestAnimationFrame(attach);
+      },
+      { once: true },
+    );
+  } else {
+    attach();
+  }
   doc.defaultView?.addEventListener('load', rescale);
   doc.defaultView?.addEventListener('resize', rescale);
-  new MutationObserver(scan).observe(root, { childList: true, subtree: true });
 }
 
 export function fitEmbedVideos(doc: Document, viewport?: { width: number; height: number }): void {

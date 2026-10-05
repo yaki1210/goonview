@@ -3,6 +3,7 @@ import { getItems, onGalleryChange } from './collector';
 import {
   base64ToUint8Array,
   copyTarget,
+  ensureDownloadOriginAccess,
   fetchGoonBoxImage,
   isSafeDownloadUrl,
   isSafeHttpsUrl,
@@ -470,6 +471,7 @@ async function saveImageAs(): Promise<void> {
     return;
   }
   const filename = suggestedDownloadFilename(url);
+  await ensureDownloadOriginAccess(url);
   const picker = (
     window as Window & {
       showSaveFilePicker?: (opts: {

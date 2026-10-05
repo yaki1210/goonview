@@ -40,7 +40,8 @@ localStorage.setItem('goonview-debug', '1')
 ## 权限
 
 - `storage`：两个开关
-- `https://goonbox.cr/*` 以及 GoonBox CDN：加载原图 API，以及另存为时读取图片字节
+- `https://goonbox.cr/*`：加载原图 API
+- 另存为若要读 CDN 字节，会在点击时再申请对应图床权限；浏览帖子时不持有 CDN 权限，避免刷新时绕过图片缓存
 - 另存为用 `showSaveFilePicker({ id: 'goonview-save' })` 记住上次目录；**不会**出现在 Chrome 最近下载里（扩展无法把自写文件登记进下载记录）
 
 不会注入 goonbox 页面，不会申请 `<all_urls>`。

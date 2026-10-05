@@ -9,6 +9,7 @@ import {
   isFamilyHost,
   isGoonBoxHost,
   isSafeDownloadUrl,
+  downloadOriginPattern,
   isSafeHttpsUrl,
   isXfAttachmentUrl,
   parseGoonBoxId,
@@ -138,6 +139,10 @@ describe('hasImageExtension / isSafeHttpsUrl / isAllowedApiUrl', () => {
     expect(sanitizeDownloadFilename('../../etc/passwd')).toBe('passwd.jpg');
     expect(sanitizeDownloadFilename('foo.webp')).toBe('foo.webp');
     expect(suggestedDownloadFilename('https://x.cr/images4/a.md.jpg?x=1')).toBe('a.md.jpg');
+    expect(downloadOriginPattern('https://simp6.cuckcapital.cr/images4/a.md.jpg')).toBe(
+      'https://simp6.cuckcapital.cr/*',
+    );
+    expect(downloadOriginPattern('javascript:alert(1)')).toBeNull();
   });
 
   it('roundtrips image bytes through base64 for extension messaging', () => {
