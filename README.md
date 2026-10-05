@@ -1,19 +1,24 @@
 # GoonView
 
-在 [simpcity.cr](https://simpcity.cr) 帖内用 Telegram 风格的全屏卡片看图：普通左键不再跳到 goonbox 新标签。
+Chrome and Edge extension that keeps you on the thread. A normal left click on a [simpcity.cr](https://simpcity.cr) post image opens a dark, full-screen viewer in the same tab instead of sending you to a GoonBox page.
 
-## 功能
+The viewer works like Telegram: the pictures already on the page, left and right to move between them, and the original file only when you ask for it.
 
-- 左键打开当前页 overlay，左右键切换本页已显示的 `img.bbImage`
-- 默认显示帖里已经加载的预览；点「加载原图」再拉原图
-- 工具栏「在新标签打开」按钮才跳走
-- 滚轮缩放，放大后可拖动
-- 中键 / Ctrl / Cmd / Shift+点击仍用浏览器原生新标签
-- 帖内 turbo.cr 视频画面按站点当前尺寸放大到 2 倍。播放还是站点自己的播放器
+## Install
 
-## 开发
+Chrome and Edge, Manifest V3. The extension matches `https://simpcity.cr/*` only. It does not run on `www.simpcity.cr` or on goonbox.cr.
 
-需要 Node 18+。
+### Release
+
+1. Download `goonview-0.1.0.zip` from [Releases](https://github.com/yaki1210/goonview/releases).
+2. Unzip it. `manifest.json` should sit in the folder you select.
+3. Open `chrome://extensions` or `edge://extensions`.
+4. Turn on **Developer mode**.
+5. Choose **Load unpacked** and select that folder.
+
+### From source
+
+Node 18 or newer.
 
 ```bash
 npm install
@@ -21,31 +26,67 @@ npm test
 npm run build
 ```
 
-Chrome / Edge：打开 `chrome://extensions`（或 `edge://extensions`）→ 开发者模式 → **加载已解压的扩展程序** → 选本仓库的 `dist/`。
+Load the `dist/` folder the same way. After you change the code, run `npm run build` again (or `npm run dev` in another terminal) and click **Reload** on the extension card.
 
-改代码后重新 `npm run build`（或另开一个终端跑 `npm run dev`），再到扩展页点刷新。
+## Using it
 
-## 设置
+Left-click a post thumbnail (`img.bbImage` inside `.message-userContent`). The overlay shows the preview the page already loaded. It does not fetch the full original until you ask.
 
-扩展管理页 → GoonView → 详细信息 → 扩展程序选项。
+| Action | Result |
+| --- | --- |
+| Left click a thumbnail | Open the viewer |
+| Left / right arrows, or the side buttons | Previous / next image on this page |
+| Swipe sideways while at 1× | Previous / next image |
+| Mouse wheel | Zoom from 1× to 8×, anchored at the cursor |
+| Drag while zoomed | Pan |
+| Click the picture | Load the original |
+| Sparkles button | Load the original |
+| Click the dark area around the picture | Close |
+| `Esc` | Leave fullscreen, then close |
+| `F` or the fullscreen button | Toggle fullscreen |
+| Middle click, or Ctrl / Cmd / Shift + click | Browser’s own new tab |
+| Open-in-tab button | Leave the thread on purpose |
+| Copy button | Copy the image link |
+| Save button | System save dialog for the picture on screen |
 
-调试采集：在论坛页控制台执行后刷新：
+The gallery is the thumbnails already rendered on the current document, in document order. Collapsed spoilers stay out until you open them. Avatars, smilies, reactions, and signatures stay out. Other pages and posts that have not loaded yet stay out until the site loads them.
+
+turbo.cr embeds in a post are drawn at twice the site’s layout size. Playback stays the site’s own player. The extension does not intercept video, and it does not download video.
+
+## Permissions
+
+| Permission | Why |
+| --- | --- |
+| `storage` | The two options switches |
+| `https://goonbox.cr/*` | GoonBox image API when you load an original |
+
+Save As may ask, once, for the image host (`*.cuckcapital.cr`, `*.selti-delivery.ru`, or `simpcity.cr`). That permission is optional so browsing does not treat thumbnail CDNs as extension-accessible. Chrome would otherwise refetch every cached thumbnail on refresh.
+
+The save dialog is `showSaveFilePicker`. The file is written where you choose. It does not show up in Chrome’s download list.
+
+There is no `<all_urls>` permission, and the extension does not inject into goonbox.cr.
+
+## Options
+
+Extension details → **Extension options**.
+
+- **Click intercept** — left click opens the viewer. Turn it off to restore the site’s own click.
+- **Forum attachments** — on by default. Turn it off and XenForo’s lightbox handles `/attachments/` links again. External image hosts still open in GoonView.
+
+To see what the collector found, open the forum page console, run the line below, and refresh. A panel in the corner lists hosts. Remove the key when you are done.
 
 ```js
 localStorage.setItem('goonview-debug', '1')
 ```
 
-右下角会显示 hostname 直方图。确认完再 `localStorage.removeItem('goonview-debug')`。
+## Develop
 
-## 权限
+```bash
+npm test
+npx tsc --noEmit
+npm run build
+```
 
-- `storage`：两个开关
-- `https://goonbox.cr/*`：加载原图 API
-- 另存为若要读 CDN 字节，会在点击时再申请对应图床权限；浏览帖子时不持有 CDN 权限，避免刷新时绕过图片缓存
-- 另存为用 `showSaveFilePicker({ id: 'goonview-save' })` 记住上次目录；**不会**出现在 Chrome 最近下载里（扩展无法把自写文件登记进下载记录）
+TypeScript, Vite 5, and `@crxjs/vite-plugin`. The manifest is `manifest.config.ts`. Tests use Vitest and happy-dom. `dist/` and `node_modules/` are not committed.
 
-不会注入 goonbox 页面，不会申请 `<all_urls>`。
-
-## 当前范围
-
-看图是 Telegram 风格的预览。turbo.cr 嵌入只放大显示尺寸，不拦截播放、不收藏、不下载。收藏夹 / 按人物归档 / 库页是未来项，见 [`docs/design.md`](docs/design.md) 的 Future work，先不实现。Overlay 里的「另存为」只是当前这张图的系统保存对话框。
+Product decisions and the backlog live in [`docs/design.md`](docs/design.md). Favorites, per-person folders, and a library page are written down there and are not built yet.
