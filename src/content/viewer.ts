@@ -1,12 +1,13 @@
 import type { GalleryItem, LoadKind, ResolvePhase } from '../shared/types';
 import { getItems, onGalleryChange } from './collector';
 import {
-  base64ToUint8Array,
+  bytesLookLikeImage,
   copyTarget,
   ensureDownloadOriginAccess,
   fetchGoonBoxImage,
   isSafeDownloadUrl,
   isSafeHttpsUrl,
+  loadImageBlob,
   openTabTarget,
   resolveOriginal,
   suggestedDownloadFilename,
@@ -426,41 +427,9 @@ async function blobFromDisplayedImage(): Promise<Blob | null> {
   }
 }
 
-function bytesLookLikeImage(buf: ArrayBuffer): boolean {
-  const u = new Uint8Array(buf);
-  if (u.length < 12) return false;
-  const head = new TextDecoder('latin1').decode(u.subarray(0, 16));
-  if (head.includes('[object') || head.startsWith('<!')) return false;
-  if (u[0] === 0xff && u[1] === 0xd8) return true;
-  if (u[0] === 0x89 && u[1] === 0x50) return true;
-  if (u[0] === 0x47 && u[1] === 0x49) return true;
-  if (head.startsWith('RIFF')) return true;
-  return u[0] !== 0x7b;
-}
-
 async function getImageBlob(url: string): Promise<Blob | null> {
-  try {
-    const res = await chrome.runtime.sendMessage({ type: 'FETCH_IMAGE_BYTES', url });
-    if (res?.ok && typeof res.base64 === 'string' && res.base64.length > 0) {
-      const bytes = base64ToUint8Array(res.base64);
-      const copy = new ArrayBuffer(bytes.byteLength);
-      new Uint8Array(copy).set(bytes);
-      if (bytesLookLikeImage(copy)) {
-        return new Blob([copy], { type: res.mime || 'application/octet-stream' });
-      }
-    }
-  } catch {
-    /* SW fetch may lack host permission */
-  }
-  try {
-    const r = await fetch(url, { credentials: 'omit', cache: 'force-cache' });
-    if (r.ok) {
-      const buf = await r.arrayBuffer();
-      if (bytesLookLikeImage(buf)) return new Blob([buf], { type: r.headers.get('content-type') || '' });
-    }
-  } catch {
-    /* page CORS */
-  }
+  const blob = await loadImageBlob(url);
+  if (blob) return blob;
   return blobFromDisplayedImage();
 }
 

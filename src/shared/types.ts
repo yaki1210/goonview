@@ -23,7 +23,9 @@ export const DEFAULT_SETTINGS: Settings = {
 export type BgRequest =
   | { type: 'FETCH_GOONBOX_IMAGE'; id: string }
   | { type: 'SAVE_IMAGE_AS'; url: string; filename: string }
-  | { type: 'FETCH_IMAGE_BYTES'; url: string };
+  | { type: 'FETCH_IMAGE_BYTES'; url: string }
+  | { type: 'ENSURE_BATCH_ACCESS'; origins: string[] }
+  | { type: 'DOWNLOAD_URL'; url: string; filename: string };
 
 export type GoonBoxImagePayload = {
   image?: {

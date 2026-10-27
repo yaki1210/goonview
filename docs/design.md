@@ -6,7 +6,7 @@
 | **产品** | GoonView 浏览器扩展 |
 | **作者** | TBD |
 | **日期** | 2026-09-19 |
-| **状态** | Draft（rev 5：v1 冻结为图片预览；收藏/下载为未排期 backlog；视频不经插件） |
+| **状态** | Draft（rev 6：当前页勾选并保存原图已实现，见 D14；收藏夹/库页/按人物归档仍未排期；视频不经插件） |
 | **仓库** | `E:\project\goonview` |
 | **目标平台** | Chrome / Edge，Manifest V3 |
 | **文档语言** | 中文（代码标识符、URL、CSS 选择器、文件路径保持英文） |
@@ -123,7 +123,7 @@ GoonView 是一个 **Manifest V3 内容脚本优先** 的 Chrome/Edge 扩展：�
 - 不把非 `img.bbImage` 的正文装饰图纳入默认图库（debug 补选除外）。
 - 不发布 Chrome Web Store / 不打包 Firefox 为 v1 交付物。
 - 不为 pixhost.to / imgbox.com 做 HTML 抓取（Host coverage；预览与「新标签打开」仍可用）。
-- **不做收藏夹 / 库页 / 按人物归档 / 下载管理**（见 Future work；方向未锁，不排期）。
+- **不做收藏夹 / 库页 / 按人物归档 / 下载管理。** 当前页勾选并保存原图见 D14。不记住根目录，不做 zip。
 - 不提供复杂设置页、账号、云同步以外的产品表面。
 - 不申请 `webRequest` / `declarativeNetRequest` / `webNavigation` 去取消导航。
 
@@ -131,7 +131,7 @@ GoonView 是一个 **Manifest V3 内容脚本优先** 的 Chrome/Edge 扩展：�
 
 ## Key Decisions
 
-本节固化 D1–D13。实现与评审以本节为准；若需推翻，先改文档再改代码。
+本节固化 D1–D14。实现与评审以本节为准；若需推翻，先改文档再改代码。
 
 ### D1 — Chrome / Edge MV3 优先
 
@@ -192,7 +192,7 @@ Windows 用户。用 MV3 `service_worker` + `content_scripts`。开发方式：`
 - 某一项原图仅在 **实际 `onload` / `decode()` 成功** 后写入 session（挂在 WeakMap 的 `GalleryItem` 上）。切走再切回不重复成功项。加载失败的 URL **不得**标 `ready`。
 - **滚轮缩放 + 拖动平移：v1（D12）**。host `wheel` 必须 `{ passive: false }` 并 `preventDefault()`（既阻止背后帖子滚动，也驱动缩放）。
 - 打开期间：`document.documentElement` 锁 `overflow: hidden`，关闭时恢复进入前的值；`window` capture `keydown` 对已处理键 `preventDefault` + `stopPropagation`；**host** 上 `wheel` / `touchmove` 必须 `{ passive: false }`。若误绑到 `window`，同样必须 `{ passive: false }`。
-- 无视频；无打包下载。
+- 无视频。当前页批量保存原图见 D14，不做 zip。
 - **复制 URL：** `originalState === 'ready'` 则复制 `originalUrl`，否则 `unwrappedHref`，再否则 `previewUrl`。
 - **在新标签打开（`button.open-tab`）：** 工具栏一等按钮，图标为 Font Awesome Free **`arrow-up-right-from-square`** 的内联 SVG（`viewBox="0 0 512 512"`，`fill="currentColor"`，**禁止**加载 FA webfont / CDN / 外部图标字体）。`aria-label="在新标签打开"`。点击处理函数里 **同步** `window.open(knownUrl || 'about:blank', '_blank')`：`knownUrl` = `ready` 时的 `originalUrl`，否则 `unwrappedHref`（这就是以前左键会跳到的 GoonBox 图页 / 附件 / pixhost show 页），再否则 `previewUrl`。若还要用 API 才能得到原图 URL、且用户点的是「打开原图像素」路径——本按钮 **不** 为了原图去 await API；它优先打开已经知道的 href。禁止先 `await` 再 `window.open`。
 - Overlay **host 常驻、关闭时隐藏并回收**。
@@ -358,7 +358,20 @@ Capture 先于 Fancybox 冒泡。不加载 XF lightbox CSS/JS。默认（`interc
 
 GoonView v1 只做一件事：在帖内把已显示的图片用一致的 overlay 看完（预览 → 可选原图 → 缩放/切图/新标签）。这条路径已经完整，后续功能不得破坏它的一致性。
 
-收藏夹、下载、按人物文件夹、库页搜索，一律放 Future work，**写下来但不实现**，直到单独开一轮把数据模型、磁盘权限和去重规则锁清。视频永远不进入这条 overlay，也不进入未来的图库。
+收藏夹、按人物文件夹、库页搜索仍放 Future work，**写下来但不实现**，直到单独开一轮把数据模型、磁盘权限和去重规则锁清。当前页勾选保存不是库页，见 D14。视频永远不进入这条 overlay，也不进入未来的图库。
+
+### D14 — 当前页勾选，保存原图到自选文件夹
+
+帖子右下角两个独立按钮：**选择**、**下载**。
+
+- **选择**打开当前文档的选择模式。已采集图片可点选；选中后盖蓝色蒙面（`rgba(47, 111, 237, 0.45)`），这次点击不打开 viewer。再点**选择**退出，清空选择，左键恢复 viewer。
+- 每条 `.message` 右侧、垂直居中、卡片外缘再往外三个勾选圆的宽度，有一个圆形**全选**。仅当该消息里每张已采集图片都被选中时它才勾上。点击：未全选则选中该消息全部已采集图片；已全选则只清空该消息。其它消息和选择模式保持不变。部分选中时它不勾，下一次点击是全选该消息，不是逐张反转。
+- **下载**对当前选中项走与单张 Save As 相同的原图字节路径（strip / GoonBox API，拒绝 `.json` 等非图片 URL）。同一最终 URL 只写一次，最多 3 路并发。先 `showDirectoryPicker`（一次、不记住），再把文件直接写入所选文件夹，文件名形如 `001-photo.jpg`（`batchPath` 的最后一段；不建 `GoonView/<slug>/` 子目录）。取消文件夹对话框则状态为「未选择保存位置」，不写文件。
+- 只包含 collector 已经有真实 URL 的图。头像、表情、签名、折叠 spoiler、视频、尚未懒加载出 URL 的图不在内。修饰键 / 中键照旧交给浏览器。
+- 必需 `host_permissions` 仍只有 `https://goonbox.cr/*`。CDN 仍是 `optional_host_permissions`，保存时才请求，避免浏览时跳过缩略图磁盘缓存。`downloads` 留在 `optional_permissions`，这条路径不调用 `chrome.downloads`，也不进 Chrome 下载栏。
+- 选择控件在 `DOMContentLoaded` 之后挂上。不在 HTML 解析期间读布局或挂采集 / 选择用的 `MutationObserver`。点击拦截仍在 `document_start`。
+
+**理由：** 用户要在当前页勾选多张图并保存原图，且要自己选保存位置。这不是收藏夹，也不是可回读的库。
 
 ---
 
@@ -880,7 +893,7 @@ PR6 对照 `fetch` 调用：若仍无 CDN `fetch`，**不得**把 CDN host 加�
 
 CRXJS 允许 manifest 写 TS 入口。**不要**把 `styles.css` 放到 `content_scripts.css`。CSS 用 `import styles from './styles.css?raw'` 写入 closed shadow。
 
-不申请：`tabs`、`scripting`、`webRequest`、`declarativeNetRequest`、`webNavigation`、`<all_urls>`、`cookies`、`downloads`。
+不申请：`tabs`、`scripting`、`webRequest`、`declarativeNetRequest`、`webNavigation`、`<all_urls>`、`cookies`。必需权限不含 `downloads`。`optional_permissions: ["downloads"]` 保留，D14 的批量保存不调用 `chrome.downloads`。CDN 只在 `optional_host_permissions`，保存时才请求。
 
 ### `src/shared/types.ts`
 
@@ -1135,11 +1148,11 @@ v1 以 **未打包扩展** 分发，不走 CWS。
 3. **Firefox 打包：** D1 留到后续 PR。
 4. ~~`www.simpcity.cr`~~ **已决定：v1 apex only。**
 5. ~~循环翻页~~ **已决定：循环。**
-6. ~~CDN `host_permissions`~~ **已决定：v1 不申请 CDN；PR4 仅 `goonbox.cr`。**
+6. ~~CDN `host_permissions`~~ **已决定：必需权限只有 `goonbox.cr`。** CDN 为 `optional_host_permissions`，Save As 与 D14 批量保存时才请求。
 7. ~~overlay 缩放~~ **已决定：v1 滚轮缩放 + 放大后拖动（D12）。**
 8. ~~新标签逃生舱~~ **已决定：overlay `open-tab` 按钮（`arrow-up-right-from-square`）；帖内左键不跳。**
 9. ~~视频~~ **已决定：不做播放器；不收藏、不下载视频。站点播放器够用。**
-10. **收藏夹 / 下载 / 库页：** 仅 backlog（见 Future work）。未锁：磁盘一份还是每夹一份、未选根目录时收藏是否可先用。**在锁清之前不写代码。**
+10. **收藏夹 / 库页：** 仍是 backlog（见 Future work）。当前页勾选保存已按 D14 实现，不是库页。未锁：磁盘一份还是每夹一份、未选根目录时收藏是否可先用。**库页在锁清之前不写代码。**
 
 ---
 
@@ -1229,7 +1242,7 @@ v1 以 **未打包扩展** 分发，不走 CWS。
 - **标题：** `feat: options page and confirm host_permissions`
 - **影响文件：** `src/options/*`、`src/shared/settings.ts`、`manifest.json`（加 `options_ui`；**grep `fetch` 后不得把 CDN host 加回来**）、`README.md`
 - **依赖：** PR5
-- **说明：** 两个 checkbox 的 options_ui；storage 热更新。结束态权限 = `storage` + `https://goonbox.cr/*`。v1 冻结：无视频、无收藏夹、无下载管理、无 pixhost/imgbox HTML 抓取、无 Firefox 打包、无 `<all_urls>`。缩放与 `open-tab` 已在前面的 PR 交付。
+- **说明：** 两个 checkbox 的 options_ui；storage 热更新。结束态必需权限 = `storage` + `https://goonbox.cr/*`。v1 冻结：无视频、无收藏夹、无库页、无 pixhost/imgbox HTML 抓取、无 Firefox 打包、无 `<all_urls>`。当前页保存见 D14。缩放与 `open-tab` 已在前面的 PR 交付。
 
 ---
 
@@ -1268,4 +1281,4 @@ v1 以 **未打包扩展** 分发，不走 CWS。
 3. 根目录是「库的源」还是「可选导出」。
 4. 合集帖 / Request 帖的 slug 不好看时，要不要强制自定义名。
 
-未锁清之前：**零代码、不改 manifest 权限、不在 overlay 加星标。**
+库页未锁清之前：**不为库页写代码、不把根目录记成库、不在 overlay 加星标。** 当前页一次性文件夹保存见 D14，不满足上面四问。

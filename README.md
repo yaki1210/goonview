@@ -49,7 +49,17 @@ Left-click a post thumbnail (`img.bbImage` inside `.message-userContent`). The o
 | Copy button | Copy the image link |
 | Save button | System save dialog for the picture on screen |
 
-The gallery is the thumbnails already rendered on the current document, in document order. Collapsed spoilers stay out until you open them. Avatars, smilies, reactions, and signatures stay out. Other pages and posts that have not loaded yet stay out until the site loads them.
+### Select and save
+
+Two buttons sit at the bottom-right of the thread.
+
+**选择** lets you mark collected images on this page. Click a thumbnail to toggle it. A selected picture is covered by a blue mask, and that click does not open the viewer. Click **选择** again to clear the marks and restore the normal left-click viewer.
+
+Each message has a round **全选** control outside the card, at mid-height, three control-widths past the card’s right edge. It checks itself only when every collected image in that message is selected. Click it to select all of them. Click it again to clear that message only. Other messages stay as they are. A partial selection leaves the control unchecked; the next click selects the whole message.
+
+**下载** asks for a folder once, then writes the original bytes of the marked pictures into that folder. File names look like `001-photo.jpg`. The same final URL is written once. Cancel the folder dialog and nothing is saved. The button does not use Chrome’s download list.
+
+The gallery is the thumbnails already rendered on the current document, in document order. Collapsed spoilers stay out until you open them. Avatars, smilies, reactions, and signatures stay out. Other pages and posts that have not loaded yet stay out until the site loads them. Video is not selectable.
 
 turbo.cr embeds in a post are drawn at twice the site’s layout size. Playback stays the site’s own player. The extension does not intercept video, and it does not download video.
 
@@ -60,9 +70,9 @@ turbo.cr embeds in a post are drawn at twice the site’s layout size. Playback 
 | `storage` | The two options switches |
 | `https://goonbox.cr/*` | GoonBox image API when you load an original |
 
-Save As may ask, once, for the image host (`*.cuckcapital.cr`, `*.selti-delivery.ru`, or `simpcity.cr`). That permission is optional so browsing does not treat thumbnail CDNs as extension-accessible. Chrome would otherwise refetch every cached thumbnail on refresh.
+Save As and batch save may ask, once, for the image host (`*.cuckcapital.cr`, `*.selti-delivery.ru`, or `simpcity.cr`). That permission is optional so browsing does not treat thumbnail CDNs as extension-accessible. Chrome would otherwise refetch every cached thumbnail on refresh.
 
-The save dialog is `showSaveFilePicker`. The file is written where you choose. It does not show up in Chrome’s download list.
+Single-image Save As uses `showSaveFilePicker`. Batch save uses `showDirectoryPicker` and writes the files into the folder you pick. Neither path shows up in Chrome’s download list. `downloads` is an optional permission and the batch button does not request it.
 
 There is no `<all_urls>` permission, and the extension does not inject into goonbox.cr.
 
@@ -89,4 +99,4 @@ npm run build
 
 TypeScript, Vite 5, and `@crxjs/vite-plugin`. The manifest is `manifest.config.ts`. Tests use Vitest and happy-dom. `dist/` and `node_modules/` are not committed.
 
-Product decisions and the backlog live in [`docs/design.md`](docs/design.md). Favorites, per-person folders, and a library page are written down there and are not built yet.
+Product decisions and the backlog live in [`docs/design.md`](docs/design.md). Favorites, per-person folders, and a library page are written down there and are not built yet. The [v0.1.0 release zip](https://github.com/yaki1210/goonview/releases/tag/v0.1.0) is the viewer without select-and-save. Load `dist/` from this tree for the current build.

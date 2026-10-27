@@ -1,5 +1,6 @@
 import { getLiveMap, imgFromEventTarget } from './collector';
 import { isXfAttachmentUrl } from './original';
+import { classifyPointer, toggleFromPointerTarget } from './select';
 import { loadSettings, onSettingsChanged, type Settings } from '../shared/settings';
 import { closeViewer, isViewerOpen, openViewer } from './viewer';
 
@@ -25,8 +26,20 @@ function shouldBypassAttachment(img: HTMLImageElement): boolean {
 }
 
 function handlePointer(ev: Event): void {
-  if (!settings.interceptEnabled) return;
   if (ev instanceof MouseEvent && isModifiedClick(ev)) return;
+  const kind = classifyPointer(ev.target);
+  // Toolbar buttons handle themselves. Stopping the event here would drop their click.
+  if (kind === 'control') return;
+  if (kind === 'check' || kind === 'toggle') {
+    ev.stopImmediatePropagation();
+    // pointerdown must not toggle: this listener also runs on click.
+    // preventDefault stays on click so it does not swallow the click that follows pointerdown.
+    if (ev.type !== 'click') return;
+    ev.preventDefault();
+    toggleFromPointerTarget(ev.target);
+    return;
+  }
+  if (!settings.interceptEnabled) return;
   const img = imgFromEventTarget(ev.target);
   if (!img) return;
   if (shouldBypassAttachment(img)) return;

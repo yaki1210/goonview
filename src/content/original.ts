@@ -144,6 +144,33 @@ export function isSafeDownloadUrl(raw: unknown): raw is string {
   }
 }
 
+const NON_IMAGE_EXT = /\.(?:json|html?|php|txt|xml|js|css)$/i;
+
+/** http(s) image or extension-less file. Rejects JSON and other non-image names. */
+export function isImageDownloadUrl(raw: unknown): raw is string {
+  if (!isSafeDownloadUrl(raw)) return false;
+  try {
+    const last = new URL(raw).pathname.split('/').pop() ?? '';
+    return !NON_IMAGE_EXT.test(last);
+  } catch {
+    return false;
+  }
+}
+
+export function bytesLookLikeImage(buf: ArrayBuffer): boolean {
+  const u = new Uint8Array(buf);
+  if (u.length < 12) return false;
+  const head = new TextDecoder('latin1').decode(u.subarray(0, 16));
+  if (head.includes('[object') || head.startsWith('<!') || head.startsWith('{') || head.startsWith('[')) {
+    return false;
+  }
+  if (u[0] === 0xff && u[1] === 0xd8) return true;
+  if (u[0] === 0x89 && u[1] === 0x50) return true;
+  if (u[0] === 0x47 && u[1] === 0x49) return true;
+  if (head.startsWith('RIFF') || head.startsWith('BM')) return true;
+  return u[0] !== 0x7b;
+}
+
 /** Pattern for chrome.permissions; required goonbox.cr is already granted. */
 export function downloadOriginPattern(url: string): string | null {
   try {
@@ -213,7 +240,9 @@ export async function fetchImageBytes(
     const r = await fetcher(url, { credentials: 'omit', redirect: 'follow', cache: 'force-cache' });
     if (!r.ok) return { ok: false, error: `HTTP ${r.status}` };
     const mime = r.headers.get('content-type') || 'application/octet-stream';
-    if (mime.includes('text/html')) return { ok: false, error: 'not an image' };
+    if (mime.includes('text/html') || mime.includes('application/json') || mime.includes('text/json')) {
+      return { ok: false, error: 'not an image' };
+    }
     const buffer = await r.arrayBuffer();
     if (buffer.byteLength < 24 || buffer.byteLength > 80 * 1024 * 1024) {
       return { ok: false, error: 'bad size' };
@@ -369,6 +398,28 @@ export async function fetchJsonWhitelisted(
   } catch (e) {
     return { ok: false, error: String(e) };
   }
+}
+
+/** Same bytes the viewer saves: service worker first, then a page fetch. Rejects JSON. */
+export async function loadImageBlob(url: string): Promise<Blob | null> {
+  if (!isImageDownloadUrl(url)) return null;
+  const runtime = (globalThis as { chrome?: typeof chrome }).chrome?.runtime;
+  if (runtime?.sendMessage) {
+    try {
+      const res = await runtime.sendMessage<BgRequest, BgResponse>({ type: 'FETCH_IMAGE_BYTES', url });
+      if (res?.ok && typeof res.base64 === 'string' && res.base64.length > 0) {
+        const bytes = base64ToUint8Array(res.base64);
+        const copy = new ArrayBuffer(bytes.byteLength);
+        new Uint8Array(copy).set(bytes);
+        if (bytesLookLikeImage(copy)) return new Blob([copy], { type: res.mime || 'application/octet-stream' });
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+  const fetched = await fetchImageBytes(url);
+  if (!fetched.ok || !bytesLookLikeImage(fetched.buffer)) return null;
+  return new Blob([fetched.buffer], { type: fetched.mime || 'application/octet-stream' });
 }
 
 export async function fetchGoonBoxImage(id: string): Promise<BgResponse> {
