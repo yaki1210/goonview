@@ -3,7 +3,7 @@ import { defineManifest } from '@crxjs/vite-plugin';
 export default defineManifest({
   manifest_version: 3,
   name: 'GoonView',
-  version: '0.1.0',
+  version: '0.2.0',
   description: 'In-page Telegram-style image viewer for simpcity.cr',
   permissions: ['storage'],
   optional_permissions: ['downloads'],

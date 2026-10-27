@@ -10,7 +10,7 @@ Chrome and Edge, Manifest V3. The extension matches `https://simpcity.cr/*` only
 
 ### Release
 
-1. Download `goonview-0.1.0.zip` from [Releases](https://github.com/yaki1210/goonview/releases).
+1. Download `goonview-0.2.0.zip` from [Releases](https://github.com/yaki1210/goonview/releases).
 2. Unzip it. `manifest.json` should sit in the folder you select.
 3. Open `chrome://extensions` or `edge://extensions`.
 4. Turn on **Developer mode**.
@@ -99,4 +99,4 @@ npm run build
 
 TypeScript, Vite 5, and `@crxjs/vite-plugin`. The manifest is `manifest.config.ts`. Tests use Vitest and happy-dom. `dist/` and `node_modules/` are not committed.
 
-Product decisions and the backlog live in [`docs/design.md`](docs/design.md). Favorites, per-person folders, and a library page are written down there and are not built yet. The [v0.1.0 release zip](https://github.com/yaki1210/goonview/releases/tag/v0.1.0) is the viewer without select-and-save. Load `dist/` from this tree for the current build.
+Product decisions and the backlog live in [`docs/design.md`](docs/design.md). Favorites, per-person folders, and a library page are written down there and are not built yet.
