@@ -10,7 +10,7 @@ Chrome and Edge, Manifest V3. The extension matches `https://simpcity.cr/*` only
 
 ### Release
 
-1. Download `goonview-0.2.0.zip` from [Releases](https://github.com/yaki1210/goonview/releases).
+1. Download `goonview-0.2.1.zip` from [Releases](https://github.com/yaki1210/goonview/releases).
 2. Unzip it. `manifest.json` should sit in the folder you select.
 3. Open `chrome://extensions` or `edge://extensions`.
 4. Turn on **Developer mode**.
