@@ -133,6 +133,16 @@ export function isSafeHttpsUrl(raw: unknown): raw is string {
   }
 }
 
+/** API original file. `medium_url` / `thumb_url` are different UUIDs and are not originals. */
+export function preferredOriginalUrl(data: GoonBoxImagePayload | undefined): string | undefined {
+  const image = data?.image;
+  if (!image) return undefined;
+  if (isSafeHttpsUrl(image.original_url)) return image.original_url;
+  if (!isSafeHttpsUrl(image.url)) return undefined;
+  if (image.url === image.medium_url || image.url === image.thumb_url) return undefined;
+  return image.url;
+}
+
 export function isSafeDownloadUrl(raw: unknown): raw is string {
   if (typeof raw !== 'string' || raw.startsWith('data:') || raw.startsWith('blob:')) return false;
   try {
@@ -231,26 +241,103 @@ export function base64ToUint8Array(b64: string): Uint8Array {
   return out;
 }
 
+const CDN_REFERER = 'https://goonbox.cr/img/';
+const REFERER_RULE_ID = 1;
+const refererHosts = new Map<string, number>();
+
+function dnrApi(): typeof chrome.declarativeNetRequest | undefined {
+  return (globalThis as { chrome?: typeof chrome }).chrome?.declarativeNetRequest;
+}
+
+/** Service-worker fetch cannot set Referer. Session rule sends the GoonBox image path the CDN allows. */
+async function syncRefererRule(): Promise<void> {
+  const dnr = dnrApi();
+  if (!dnr?.updateSessionRules) return;
+  const domains = [...refererHosts.keys()];
+  if (domains.length === 0) {
+    await dnr.updateSessionRules({ removeRuleIds: [REFERER_RULE_ID] });
+    return;
+  }
+  await dnr.updateSessionRules({
+    removeRuleIds: [REFERER_RULE_ID],
+    addRules: [
+      {
+        id: REFERER_RULE_ID,
+        priority: 1,
+        action: {
+          type: 'modifyHeaders' as chrome.declarativeNetRequest.RuleActionType,
+          requestHeaders: [
+            {
+              header: 'referer',
+              operation: 'set' as chrome.declarativeNetRequest.HeaderOperation,
+              value: CDN_REFERER,
+            },
+          ],
+        },
+        condition: {
+          requestDomains: domains,
+          resourceTypes: [
+            'xmlhttprequest' as chrome.declarativeNetRequest.ResourceType,
+            'other' as chrome.declarativeNetRequest.ResourceType,
+          ],
+        },
+      },
+    ],
+  });
+}
+
+async function withCdnReferer<T>(url: string, task: () => Promise<T>): Promise<T> {
+  let host = '';
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return task();
+  }
+  const users = (refererHosts.get(host) ?? 0) + 1;
+  refererHosts.set(host, users);
+  if (users === 1) {
+    try {
+      await syncRefererRule();
+    } catch {
+      /* fetch anyway; the image request may still 403 */
+    }
+  }
+  try {
+    return await task();
+  } finally {
+    const left = (refererHosts.get(host) ?? 1) - 1;
+    if (left <= 0) refererHosts.delete(host);
+    else refererHosts.set(host, left);
+    try {
+      await syncRefererRule();
+    } catch {
+      /* rule cleanup is best-effort */
+    }
+  }
+}
+
 export async function fetchImageBytes(
   url: string,
   fetcher: typeof fetch = fetch,
 ): Promise<{ ok: true; buffer: ArrayBuffer; mime: string } | { ok: false; error: string }> {
   if (!isSafeDownloadUrl(url)) return { ok: false, error: 'bad url' };
-  try {
-    const r = await fetcher(url, { credentials: 'omit', redirect: 'follow', cache: 'force-cache' });
-    if (!r.ok) return { ok: false, error: `HTTP ${r.status}` };
-    const mime = r.headers.get('content-type') || 'application/octet-stream';
-    if (mime.includes('text/html') || mime.includes('application/json') || mime.includes('text/json')) {
-      return { ok: false, error: 'not an image' };
+  return withCdnReferer(url, async () => {
+    try {
+      const r = await fetcher(url, { credentials: 'omit', redirect: 'follow', cache: 'force-cache' });
+      if (!r.ok) return { ok: false, error: `HTTP ${r.status}` };
+      const mime = r.headers.get('content-type') || 'application/octet-stream';
+      if (mime.includes('text/html') || mime.includes('application/json') || mime.includes('text/json')) {
+        return { ok: false, error: 'not an image' };
+      }
+      const buffer = await r.arrayBuffer();
+      if (buffer.byteLength < 24 || buffer.byteLength > 80 * 1024 * 1024) {
+        return { ok: false, error: 'bad size' };
+      }
+      return { ok: true, buffer, mime };
+    } catch (e) {
+      return { ok: false, error: String(e) };
     }
-    const buffer = await r.arrayBuffer();
-    if (buffer.byteLength < 24 || buffer.byteLength > 80 * 1024 * 1024) {
-      return { ok: false, error: 'bad size' };
-    }
-    return { ok: true, buffer, mime };
-  } catch (e) {
-    return { ok: false, error: String(e) };
-  }
+  });
 }
 
 export function isAllowedApiUrl(raw: string): boolean {
@@ -353,6 +440,11 @@ export function resolveOriginal(
   base = defaultBase(),
 ): ResolveResult | null {
   if (phase === 'strip') {
+    // A `.md.jpg` strip of a medium UUID still returns 200. That file is not original_url.
+    if (!item.apiAttempted) {
+      const id = goonBoxIdFromItem(item, base);
+      if (id) return { kind: 'api', id };
+    }
     const stripped = firstStripCandidate(item, base);
     if (stripped) return { kind: 'strip', url: stripped };
     return resolveOriginal(item, 'after-strip-error', base);
@@ -364,7 +456,9 @@ export function resolveOriginal(
     }
     return fallbackAttachOrDirect(item, base);
   }
-  return null;
+  const stripped = firstStripCandidate(item, base);
+  if (stripped) return { kind: 'strip', url: stripped };
+  return fallbackAttachOrDirect(item, base);
 }
 
 export async function loadGoonBoxApi(
@@ -392,8 +486,8 @@ export async function fetchJsonWhitelisted(
     if (typeof data.redirect === 'string' && hop === 0) {
       return fetchJsonWhitelisted(data.redirect, 1, fetcher);
     }
-    const orig = data.image?.original_url ?? data.image?.url;
-    if (!isSafeHttpsUrl(orig)) return { ok: false, error: 'no https original_url' };
+    const orig = preferredOriginalUrl(data);
+    if (!orig) return { ok: false, error: 'no https original_url' };
     return { ok: true, data };
   } catch (e) {
     return { ok: false, error: String(e) };
@@ -423,10 +517,16 @@ export async function loadImageBlob(url: string): Promise<Blob | null> {
 }
 
 export async function fetchGoonBoxImage(id: string): Promise<BgResponse> {
-  return chrome.runtime.sendMessage<BgRequest, BgResponse>({
-    type: 'FETCH_GOONBOX_IMAGE',
-    id,
-  });
+  const runtime = (globalThis as { chrome?: typeof chrome }).chrome?.runtime;
+  if (!runtime?.sendMessage) return { ok: false, error: 'extension reloaded' };
+  try {
+    return await runtime.sendMessage<BgRequest, BgResponse>({
+      type: 'FETCH_GOONBOX_IMAGE',
+      id,
+    });
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
 }
 
 export function openTabTarget(item: GalleryItem): string {

@@ -30,6 +30,8 @@ export type BgRequest =
 export type GoonBoxImagePayload = {
   image?: {
     original_url?: string;
+    /** Smaller Chevereto file. Never use this as the loaded original. */
+    medium_url?: string;
     url?: string;
     thumb_url?: string;
     mime?: string;

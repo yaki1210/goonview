@@ -13,12 +13,15 @@ import {
   isSafeHttpsUrl,
   isXfAttachmentUrl,
   parseGoonBoxId,
+  preferredOriginalUrl,
   resolveOriginal,
   sanitizeDownloadFilename,
   stripCheveretoSizeSuffix,
   suggestedDownloadFilename,
   arrayBufferToBase64,
   base64ToUint8Array,
+  fetchGoonBoxImage,
+  fetchImageBytes,
   unwrapRedirect,
   unwrapXfProxy,
 } from './original';
@@ -152,6 +155,17 @@ describe('hasImageExtension / isSafeHttpsUrl / isAllowedApiUrl', () => {
     expect(Array.from(base64ToUint8Array(b64))).toEqual(Array.from(src));
   });
 
+  it('prefers original_url and ignores a medium url', () => {
+    const original = 'https://simp6.cuckcapital.cr/images4/49f34841-0374-431e-bebf-ec3172e4713e.jpg';
+    const medium = 'https://simp6.cuckcapital.cr/images4/2dca4818-c0ab-463f-8d48-0fa6ab908b1f.jpg';
+    expect(
+      preferredOriginalUrl({
+        image: { original_url: original, medium_url: medium, url: '' },
+      }),
+    ).toBe(original);
+    expect(preferredOriginalUrl({ image: { url: medium, medium_url: medium } })).toBeUndefined();
+  });
+
   it('allows only goonbox.cr /api/images/{id}', () => {
     expect(isAllowedApiUrl('https://goonbox.cr/api/images/tgDoR4y')).toBe(true);
     expect(isAllowedApiUrl('https://www.goonbox.cr/api/images/tgDoR4y')).toBe(false);
@@ -162,16 +176,24 @@ describe('hasImageExtension / isSafeHttpsUrl / isAllowedApiUrl', () => {
 });
 
 describe('resolveOriginal D6 order', () => {
-  it('strips preview first when href is /img/id', () => {
+  it('asks the API when a goonbox id exists, even if the preview suffix strips', () => {
+    const medium = 'https://simp6.cuckcapital.cr/images4/2dca4818-c0ab-463f-8d48-0fa6ab908b1f.md.jpg';
     const g = item({
-      previewUrl: 'https://simp6.cuckcapital.cr/images4/a.md.jpg',
-      unwrappedHref: 'https://goonbox.cr/img/tgDoR4y',
+      previewUrl: medium,
+      unwrappedHref: 'https://goonbox.cr/img/tdd6IOy',
     });
-    expect(firstStripCandidate(g, BASE)).toBe('https://simp6.cuckcapital.cr/images4/a.jpg');
-    expect(resolveOriginal(g, 'strip', BASE)).toEqual({
-      kind: 'strip',
-      url: 'https://simp6.cuckcapital.cr/images4/a.jpg',
+    expect(firstStripCandidate(g, BASE)).toBe(
+      'https://simp6.cuckcapital.cr/images4/2dca4818-c0ab-463f-8d48-0fa6ab908b1f.jpg',
+    );
+    expect(resolveOriginal(g, 'strip', BASE)).toEqual({ kind: 'api', id: 'tdd6IOy' });
+  });
+
+  it('uses the API for a medium UUID that has no size suffix', () => {
+    const g = item({
+      previewUrl: 'https://simp6.cuckcapital.cr/images4/2dca4818-c0ab-463f-8d48-0fa6ab908b1f.jpg',
+      unwrappedHref: 'https://goonbox.cr/img/tdd6IOy',
     });
+    expect(resolveOriginal(g, 'strip', BASE)).toEqual({ kind: 'api', id: 'tdd6IOy' });
   });
 
   it('jpg6 /img/ does not request goonbox API', () => {
@@ -193,13 +215,25 @@ describe('resolveOriginal D6 order', () => {
     expect(resolveOriginal(g, 'strip', BASE)).toEqual({ kind: 'api', id: 'NcY' });
   });
 
-  it('after-api-error is unavailable (no livelock)', () => {
+  it('after-api-error does not call the API again', () => {
     const g = item({
       previewUrl: 'https://simp6.cuckcapital.cr/images4/uuid.jpg',
       unwrappedHref: 'https://goonbox.cr/img/tgDoR4y',
       apiAttempted: true,
     });
     expect(resolveOriginal(g, 'after-api-error', BASE)).toBeNull();
+  });
+
+  it('after-api-error can still strip a suffix', () => {
+    const g = item({
+      previewUrl: 'https://simp6.cuckcapital.cr/images4/a.md.jpg',
+      unwrappedHref: 'https://goonbox.cr/img/tgDoR4y',
+      apiAttempted: true,
+    });
+    expect(resolveOriginal(g, 'after-api-error', BASE)).toEqual({
+      kind: 'strip',
+      url: 'https://simp6.cuckcapital.cr/images4/a.jpg',
+    });
   });
 
   it('attachments use prefix', () => {
@@ -244,5 +278,56 @@ describe('fetchJsonWhitelisted', () => {
     const res = await fetchJsonWhitelisted('https://goonbox.cr/api/images/a', 0, fetcher);
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error).toBe('url not allowed');
+  });
+});
+
+describe('fetchGoonBoxImage', () => {
+  it('does not throw when the extension runtime is gone', async () => {
+    const previous = (globalThis as { chrome?: unknown }).chrome;
+    (globalThis as { chrome?: unknown }).chrome = {};
+    try {
+      const res = await fetchGoonBoxImage('tgDoR4y');
+      expect(res).toEqual({ ok: false, error: 'extension reloaded' });
+    } finally {
+      if (previous === undefined) delete (globalThis as { chrome?: unknown }).chrome;
+      else (globalThis as { chrome?: unknown }).chrome = previous;
+    }
+  });
+});
+
+describe('fetchImageBytes', () => {
+  it('sets a simpcity Referer rule around the CDN fetch', async () => {
+    const order: string[] = [];
+    let rule: { action?: { requestHeaders?: { value?: string }[] }; condition?: { requestDomains?: string[] } } | undefined;
+    const previous = (globalThis as { chrome?: unknown }).chrome;
+    (globalThis as { chrome?: unknown }).chrome = {
+      declarativeNetRequest: {
+        updateSessionRules: async (opts: { addRules?: typeof rule[]; removeRuleIds?: number[] }) => {
+          if (opts.addRules?.length) {
+            order.push('add');
+            rule = opts.addRules[0];
+          } else {
+            order.push('remove');
+          }
+        },
+      },
+    };
+    const bytes = new Uint8Array(32);
+    bytes[0] = 0xff;
+    bytes[1] = 0xd8;
+    const fetcher: typeof fetch = async () => {
+      order.push('fetch');
+      return new Response(bytes, { status: 200, headers: { 'content-type': 'image/jpeg' } });
+    };
+    try {
+      const res = await fetchImageBytes('https://simp6.cuckcapital.cr/images4/a.jpg', fetcher);
+      expect(res.ok).toBe(true);
+      expect(order).toEqual(['add', 'fetch', 'remove']);
+      expect(rule?.condition?.requestDomains).toEqual(['simp6.cuckcapital.cr']);
+      expect(rule?.action?.requestHeaders?.[0]?.value).toBe('https://goonbox.cr/img/');
+    } finally {
+      if (previous === undefined) delete (globalThis as { chrome?: unknown }).chrome;
+      else (globalThis as { chrome?: unknown }).chrome = previous;
+    }
   });
 });

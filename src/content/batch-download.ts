@@ -1,9 +1,11 @@
 import type { BgRequest, BgResponse, GalleryItem } from '../shared/types';
 import {
   fetchGoonBoxImage,
+  firstStripCandidate,
+  goonBoxIdFromItem,
   isImageDownloadUrl,
   isSafeDownloadUrl,
-  isSafeHttpsUrl,
+  preferredOriginalUrl,
   resolveOriginal,
   suggestedDownloadFilename,
 } from './original';
@@ -133,32 +135,37 @@ export function dedupeByUrl(rows: { index: number; url: string }[]): { index: nu
 }
 
 /**
- * Resolve a download URL without assigning img.src.
+ * URL to write to disk. A GoonBox id uses API original_url, not the medium preview.
  * A Chevereto strip result is not marked ready: the viewer can still retry it.
  */
 export async function resolveOriginalUrl(
   item: GalleryItem,
   loadApi: (id: string) => Promise<BgResponse> = fetchGoonBoxImage,
 ): Promise<string | null> {
-  if (item.originalState === 'ready' && isImageDownloadUrl(item.originalUrl)) return item.originalUrl;
-  const first = resolveOriginal(item, 'strip');
-  if (first && first.kind !== 'api' && isImageDownloadUrl(first.url)) return first.url;
-  if (first?.kind === 'api') {
-    item.apiAttempted = true;
+  const id = goonBoxIdFromItem(item);
+  const cached = item.originalUrl;
+  if (item.originalState === 'ready' && isImageDownloadUrl(cached) && cached !== item.previewUrl) {
+    return cached;
+  }
+  if (id) {
     try {
-      const res = await loadApi(first.id);
-      const raw = res.ok ? (res.data?.image?.original_url ?? res.data?.image?.url) : undefined;
-      if (isSafeHttpsUrl(raw) && isImageDownloadUrl(raw)) {
+      const res = await loadApi(id);
+      const raw = res.ok ? preferredOriginalUrl(res.data) : undefined;
+      if (raw && isImageDownloadUrl(raw)) {
         item.originalUrl = raw;
         item.originalState = 'ready';
+        item.apiAttempted = true;
         return raw;
       }
     } catch {
       /* fall through */
     }
-    const second = resolveOriginal(item, 'after-strip-error');
-    if (second && second.kind !== 'api' && isImageDownloadUrl(second.url)) return second.url;
+    const stripped = firstStripCandidate(item);
+    if (stripped && isImageDownloadUrl(stripped) && stripped !== item.previewUrl) return stripped;
+    return isImageDownloadUrl(item.previewUrl) ? item.previewUrl : null;
   }
+  const first = resolveOriginal(item, 'strip');
+  if (first && first.kind !== 'api' && isImageDownloadUrl(first.url)) return first.url;
   return isImageDownloadUrl(item.previewUrl) ? item.previewUrl : null;
 }
 
@@ -215,8 +222,10 @@ export async function writeImageFile(dir: SaveDirectory, filename: string, blob:
 
 export async function ensureBatchAccess(origins: string[]): Promise<boolean> {
   if (extensionChrome()?.permissions?.request) return requestBatchAccess(origins);
+  const runtime = extensionChrome()?.runtime;
+  if (!runtime?.sendMessage) return false;
   try {
-    const res = await extensionChrome()?.runtime.sendMessage<BgRequest, BgResponse>({
+    const res = await runtime.sendMessage<BgRequest, BgResponse>({
       type: 'ENSURE_BATCH_ACCESS',
       origins: allowedBatchOrigins(origins),
     });

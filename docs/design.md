@@ -22,7 +22,7 @@
 1. 外链常见：`<a class="bbImageWrapper" href="...">` 包住 `img.bbImage`（href 可能是图床页、直链 thumb、或 `/redirect/?to=`）。也可能 **A 外包 DIV**：`<a href="https://goonbox.cr/img/…"><div class="bbImageWrapper js-lbImage">…`——`anchor` 与 `lb` 必须分开取，不能 `closest(a, div)` 只拿到内层 DIV。
 2. XF 附件常见（stock `lightbox_macros`）：**`<div class="bbImageWrapper js-lbImage" data-src="{$src}">`**，内含 `<img class="bbImage" src="{$src}" data-url="{$dataUrl}">`，**没有 href**。`data-url` / 包裹 `data-src` 是 lightbox **原图候选**，不是已经画在屏幕上的预览像素。
 
-GoonView 是一个 **Manifest V3 内容脚本优先** 的 Chrome/Edge 扩展：只注入 `https://simpcity.cr/*`（v1 **不含** `www.simpcity.cr`），在捕获阶段拦截已采集缩略图及其包裹节点的普通左键，阻止导航与 XF lightbox，在 **当前标签** 用 **closed** Shadow DOM 的暗色 overlay 查看。默认展示 **已经加载的预览**（`img.currentSrc || img.src`，**不用** `data-url` / 包裹 `data-src`）；用户通过「加载原图」按钮或（未放大时）点击画面再解析原图 URL。Overlay 工具栏有 **「在新标签打开」** 按钮（Font Awesome Free 的 `arrow-up-right-from-square` 内联 SVG，不加载 webfont/CDN）：这是离开当前帖的显式逃生舱，普通左键不再承担该职责。滚轮缩放（1×–8×），放大后可拖动平移。图库范围 = **当前文档里已经渲染出来的** `.message-userContent img.bbImage`。左/右键与方向键在该集合内循环切换。原图解析：**先**对家族 host 的 preview 去 Chevereto 尺寸后缀；仅 goonbox 主机才打 API。jpg6/jpg7 **只 strip、不打 goonbox API**。「href 带图片扩展名」**不能**证明它不是 thumb。v1 **不为** pixhost.to / imgbox.com 做 HTML 抓取（见 Host coverage）。
+GoonView 是一个 **Manifest V3 内容脚本优先** 的 Chrome/Edge 扩展：只注入 `https://simpcity.cr/*`（v1 **不含** `www.simpcity.cr`），在捕获阶段拦截已采集缩略图及其包裹节点的普通左键，阻止导航与 XF lightbox，在 **当前标签** 用 **closed** Shadow DOM 的暗色 overlay 查看。默认展示 **已经加载的预览**（`img.currentSrc || img.src`，**不用** `data-url` / 包裹 `data-src`）；用户通过「加载原图」按钮或（未放大时）点击画面再解析原图 URL。Overlay 工具栏有 **「在新标签打开」** 按钮（Font Awesome Free 的 `arrow-up-right-from-square` 内联 SVG，不加载 webfont/CDN）：这是离开当前帖的显式逃生舱，普通左键不再承担该职责。滚轮缩放（1×–8×），放大后可拖动平移。图库范围 = **当前文档里已经渲染出来的** `.message-userContent img.bbImage`。左/右键与方向键在该集合内循环切换。原图解析：有 goonbox id 时先打 API，只用 `original_url`（medium 与 original 是不同 UUID，去掉 `.md.` 后返回 200 的仍可能是中图）。没有 goonbox id 时才对家族 host 去 Chevereto 尺寸后缀。jpg6/jpg7 **只 strip、不打 goonbox API**。「href 带图片扩展名」**不能**证明它不是 thumb。v1 **不为** pixhost.to / imgbox.com 做 HTML 抓取（见 Host coverage）。
 
 ---
 
@@ -187,7 +187,7 @@ Windows 用户。用 MV3 `service_worker` + `content_scripts`。开发方式：`
 - 左右按钮 + `ArrowLeft` / `ArrowRight` + 水平 swipe（阈值约 50px；swipe 在 PR5）。
 - 全屏：按钮 + `f`，对 **overlay host** 调 Fullscreen API（PR5）。
 - 默认显示 URL = **`img.currentSrc || img.src`**。跳过空、`data:`、1×1。**禁止**用 `data-url` 或包裹 `data-src` 当 preview（那是原图候选，见 D6）。若 `src` 尚不可用，该节点先不入库，等 observer。
-- Overlay `<img class="media">` 设置 `referrerpolicy="no-referrer"`，降低 Chevereto CDN 按 `Referer: simpcity.cr` 热链防护的概率。
+- Overlay `<img class="media">` 先用 `referrerpolicy="origin"`（只送论坛源站，如 `https://simpcity.cr`）。cuckcapital 现拒绝空 Referer（403），允许 `simpcity.cr` 与 `goonbox.cr`。同一 URL 失败后再试一次 `no-referrer`，兼容仍按论坛 Referer 拦截的旧 CDN。
 - **加载原图：** 工具栏 `button.load-original` 始终可触发（未 `ready` 时）。画面点击：仅当 `scale === 1` 且 pointer 位移 < 5px 且未 `ready` 时加载原图。放大后的拖动不加载原图。
 - 某一项原图仅在 **实际 `onload` / `decode()` 成功** 后写入 session（挂在 WeakMap 的 `GalleryItem` 上）。切走再切回不重复成功项。加载失败的 URL **不得**标 `ready`。
 - **滚轮缩放 + 拖动平移：v1（D12）**。host `wheel` 必须 `{ passive: false }` 并 `preventDefault()`（既阻止背后帖子滚动，也驱动缩放）。
@@ -202,7 +202,7 @@ Windows 用户。用 MV3 `service_worker` + `content_scripts`。开发方式：`
 
 ### D6 — 原图解析（本算法 = mermaid = viewer error 边；三者冲突以本节为准）
 
-实现必须按下列 **编号步骤** 走；下方 mermaid 节点名与此相同。禁止「href 像图片就当原图」；禁止 strip 成功后仍并行打 API；禁止把 jpg6/jpg7 的 `/img/{id}` 送到 `goonbox.cr` API。
+实现必须按下列 **编号步骤** 走；下方 mermaid 节点名与此相同。禁止「href 像图片就当原图」；禁止把 medium/thumb UUID 或 strip 后仍 200 的中图当成原图；禁止把 jpg6/jpg7 的 `/img/{id}` 送到 `goonbox.cr` API。有 goonbox id 时不并行打 API：只打一次，用 `original_url`。
 
 **0. 收集 URL（去空，保留顺序）**
 
@@ -213,27 +213,27 @@ Windows 用户。用 MV3 `service_worker` + `content_scripts`。开发方式：`
 - `wrapperDataSrc = lb instanceof HTMLElement ? lb.dataset.src ?? null : null`
 - `previewInner = unwrapXfProxy(previewUrl)`（preview **显示**仍用 `currentSrc || src`）
 
-**1. Strip（`loadKind = 'strip'`）**
+**1. GoonBox API（`loadKind = 'api'`）——有 goonbox id 时先走这里**
+
+在 `unwrappedHref` / `dataUrl` / `wrapperDataSrc` / `previewInner` 上调用 `goonBoxIdFromUrl`：hostname 必须是 `goonbox.cr` 或 `*.goonbox.cr`（含 `www`），再 `parseGoonBoxId(pathname)`。
+
+- **没有** id（例如只有 `jpg6.su/img/abc`，或家族 CDN 直链）→ 步骤 2。
+- 有 id 且 `item.apiAttempted !== true`：`FETCH_GOONBOX_IMAGE`，把 `item.apiAttempted = true`。JSON `{redirect}` 白名单一跳。显示 URL 只用 https `original_url`。`medium_url` 与 `thumb_url` 是另一组 UUID，不得当作原图。`image.url` 仅当它是 https 且不等于 medium/thumb 时才能后备。
+- 例：`https://goonbox.cr/img/tdd6IOy` 的 medium 是 `…/2dca4818-c0ab-463f-8d48-0fa6ab908b1f.jpg`，original 是 `…/49f34841-0374-431e-bebf-ec3172e4713e.jpg`。preview 即使是 `2dca4818-….md.jpg`，strip 后 200 的仍是中图，必须改用 original。
+- onload → `ready`。字节失败（页面图、扩展 blob、一次 no-referrer）或 JSON 没有可用 original → 步骤 2。**禁止**再打 API。
+
+**2. Strip（`loadKind = 'strip'`）——没有 goonbox id，或 API 已失败**
 
 按这个顺序对 **家族 host** 做 `stripCheveretoSizeSuffix`（只改 pathname 文件名）：
 
 1. `previewInner`（以及若 `previewUrl !== previewInner` 且 `previewUrl` 自身也是家族 host，再试 `previewUrl`——通常不会）
 2. 其余 candidate：`unwrappedHref`、`dataUrl`、`wrapperDataSrc`
 
-**第一个** `stripped !== input` 的结果成为 overlay `img.src` candidate。常见正确路径：`href=https://goonbox.cr/img/tgDoR4y` + `src=https://simp6.cuckcapital.cr/….md.jpg` → 先 strip **preview**，不要先看 href（href 无 `.md.` 是 no-op，会错误地跳去 API）。
+**第一个** `stripped !== input` 的结果成为 overlay `img.src` candidate。没有 goonbox id 时，`src=….md.jpg` 先 strip，不打 API。
 
 - `onload` / `decode()` 且 `gen` 匹配 → `originalState = 'ready'`，缓存该 URL。**到此结束，不打 API。**
-- `error`：对 **同一 URL** 再赋一次 src（网络抖动）。仍失败 → 步骤 2。
-- 全部 strip 都是 no-op → 步骤 2。
-
-**2. GoonBox API（`loadKind = 'api'`）——仅 goonbox 主机**
-
-在 `unwrappedHref` / `dataUrl` / `wrapperDataSrc` / `previewInner` 上调用 `goonBoxIdFromUrl`：hostname 必须是 `goonbox.cr` 或 `*.goonbox.cr`（含 `www`），再 `parseGoonBoxId(pathname)`。
-
-- **没有** goonbox 主机上的 id（例如只有 `jpg6.su/img/abc`）→ **不** `FETCH_GOONBOX_IMAGE`，跳步骤 3。其它家族 host = strip-only，失败即不可用或继续附件/直链。
-- 有 id 且本 `gen` 尚未做过 API（`item.apiAttempted !== true`）：`FETCH_GOONBOX_IMAGE`，把 `item.apiAttempted = true`。JSON `{redirect}` 白名单一跳。`original_url`/`url` 必须 `isSafeHttpsUrl`。赋 `img.src`。
-- onload → `ready`。error（同一 URL 再试一次仍失败）→ 步骤 6（**禁止**再进步骤 2，否则 API URL 404 会无限循环）。
-- 本 `gen` 已 `apiAttempted` → 步骤 6。
+- `error`：对 **同一 URL** 再赋一次 src（网络抖动）。仍失败，且还没打过 API → 步骤 1。已经 `apiAttempted` → 步骤 3。
+- 全部 strip 都是 no-op，且还没打过 API → 步骤 1。已经打过 → 步骤 3。
 
 **3. XF 附件（`loadKind = 'attachment'`）**
 
@@ -247,9 +247,9 @@ candidate hostname **不是**家族，且 `hasImageExtension`（最后 path 段�
 
 禁用/隐藏「加载原图」+ tooltip / `.error`。`originalState = 'unavailable'`。**绝不**导航离开。
 
-`loadKind` 由 viewer 记住，用来分流 `img.error`：**只有 `strip` 的 error 才进入步骤 2**；`api` / `attachment` / `direct` 的 error 只进步骤 6。
+`loadKind` 由 viewer 记住，用来分流 `img.error`：`api` 的 error 进入步骤 2（strip），且不得再请求 API。`strip` 的 error 仅在 `!apiAttempted` 时进入步骤 1。`attachment` / `direct` 的 error 只进步骤 6。
 
-**理由：** 直链 href 经常仍是 thumb；UUID 去后缀会 404；goonbox API 只服务 goonbox 的 id 空间；API/附件/直链失败再打 API 会 livelock。
+**理由：** 直链 href 经常仍是 thumb；同一张图的 medium 与 original 是不同 UUID，去掉 `.md.` 后中图仍会 200；goonbox API 只服务 goonbox 的 id 空间；API 失败后再打 API 会 livelock。
 
 ### D7 — 架构：内容脚本是产品，background 只做特权 fetch
 
@@ -318,7 +318,7 @@ Capture 先于 Fancybox 冒泡。不加载 XF lightbox CSS/JS。默认（`interc
 - **复制 URL：** `ready` → `originalUrl`；否则 `unwrappedHref`；否则 `previewUrl`。
 - **在新标签打开：** 同上优先级，但 **不** 为了凑原图去 await API；有 `unwrappedHref` 就打开图床页。图标固定为 `arrow-up-right-from-square` 内联 SVG。
 - **相册/非图片包裹：** 已采集缩略图一律拦截；修饰键才导航。overlay 内用 `open-tab` 打开该 href。
-- **`referrerpolicy="no-referrer"`** 用于 overlay `<img>`。
+- **`referrerpolicy`：** overlay `<img>` 先 `origin`，同一 URL 失败再 `no-referrer`。另存为 / 批量保存的扩展 `fetch` 用 session DNR 规则把 `Referer` 设为 `https://goonbox.cr/img/`（service worker 不能自己写这个头）。页面里的 `<img>` 不能伪造这个 Referer。
 - **`error` toast：** 写明失败阶段（`strip-404` / `api` / `api-error-stop` / `https-check` / `csp-or-hotlink`）。页面 CSP `img-src` 作用于文档内 Shadow 里的 `<img>`；新 host 原图可能被 CSP 挡住，只能提示，v1 不改页面 CSP、不用 `blob:` 绕过。`api-error-stop` 之后同 gen 不再请求 API。
 - **`proxy.php`：** `previewUrl` 的 host 为 `simpcity.cr` 且 path 以 `/proxy.php` 结尾时，取 `image` query（必须是 `http:`/`https:`）再进入 D6。
 - **`www.simpcity.cr`：** v1 apex only。
@@ -366,7 +366,7 @@ GoonView v1 只做一件事：在帖内把已显示的图片用一致的 overlay
 
 - **选择**打开当前文档的选择模式。已采集图片可点选；选中后盖蓝色蒙面（`rgba(47, 111, 237, 0.45)`），这次点击不打开 viewer。再点**选择**退出，清空选择，左键恢复 viewer。
 - 每条 `.message` 右侧、垂直居中、卡片外缘再往外三个勾选圆的宽度，有一个圆形**全选**。仅当该消息里每张已采集图片都被选中时它才勾上。点击：未全选则选中该消息全部已采集图片；已全选则只清空该消息。其它消息和选择模式保持不变。部分选中时它不勾，下一次点击是全选该消息，不是逐张反转。
-- **下载**对当前选中项走与单张 Save As 相同的原图字节路径（strip / GoonBox API，拒绝 `.json` 等非图片 URL）。同一最终 URL 只写一次，最多 3 路并发。先 `showDirectoryPicker`（一次、不记住），再把文件直接写入所选文件夹，文件名形如 `001-photo.jpg`（`batchPath` 的最后一段；不建 `GoonView/<slug>/` 子目录）。取消文件夹对话框则状态为「未选择保存位置」，不写文件。
+- **下载**对当前选中项走与单张另存为相同的原图字节路径。有 goonbox id 时先取 API `original_url`，不把画面上的中图或 `previewUrl` 写进文件。同一最终 URL 只写一次，最多 3 路并发。先 `showDirectoryPicker`（一次、不记住），再把文件直接写入所选文件夹，文件名形如 `001-photo.jpg`（`batchPath` 的最后一段；不建 `GoonView/<slug>/` 子目录）。取消文件夹对话框则状态为「未选择保存位置」，不写文件。
 - 只包含 collector 已经有真实 URL 的图。头像、表情、签名、折叠 spoiler、视频、尚未懒加载出 URL 的图不在内。修饰键 / 中键照旧交给浏览器。
 - 必需 `host_permissions` 仍只有 `https://goonbox.cr/*`。CDN 仍是 `optional_host_permissions`，保存时才请求，避免浏览时跳过缩略图磁盘缓存。`downloads` 留在 `optional_permissions`，这条路径不调用 `chrome.downloads`，也不进 Chrome 下载栏。
 - 选择控件在 `DOMContentLoaded` 之后挂上。不在 HTML 解析期间读布局或挂采集 / 选择用的 `MutationObserver`。点击拦截仍在 `document_start`。
@@ -563,8 +563,8 @@ Shadow 结构（全部 `createElement`，**禁止**把页面 `alt`/caption 送�
 - `img.media` `error`（与 D6 / mermaid 同一张表）：
   | 当前 `loadKind` | 同 URL 尚未重试 | 同 URL 已重试一次 |
   | --- | --- | --- |
-  | `strip` | 再赋同一 src | 步骤 2 API（仅 `goonBoxIdFromUrl` 且 `!apiAttempted`）；否则步骤 3–6 |
-  | `api` | 再赋同一 src | `unavailable`，**禁止**再 `FETCH_GOONBOX_IMAGE` |
+  | `strip` | 再赋同一 src | 尚未 API 则步骤 1；已 `apiAttempted` 则步骤 3–6 |
+  | `api` | 再赋同一 src | 步骤 2 strip 一次，**禁止**再 `FETCH_GOONBOX_IMAGE` |
   | `attachment` / `direct` | 再赋同一 src | `unavailable` |
 
 #### `src/content/original.ts`
@@ -577,7 +577,7 @@ Shadow 结构（全部 `createElement`，**禁止**把页面 `alt`/caption 送�
 
 ### 原图解析流程
 
-与 D6 编号步骤同一张图。`OK -->|error|` **不得**再连回 `H`。strip 的 error 才进 `G`；API/附件/直链的 error 进 `J`。
+与 D6 编号步骤同一张图。有 goonbox id 时先走 API（`original_url`），不要先把 strip 结果标成 ready。`OK -->|error|` **不得**再连回 `H`。API 失败才 strip；strip 失败且已经打过 API 则不再打 API。
 
 ```mermaid
 flowchart TD
@@ -1087,7 +1087,7 @@ Plus 改 `href` 让 Fancybox 吃外链：无分阶段原图、升级易破、DIV
 
 ### 图片加载
 
-页面文档内 `<img>`（含 closed shadow）受 **页面 CSP `img-src`** 约束。不要用 `fetch` + `blob:` 绕 CSP。失败 toast。`referrerpolicy="no-referrer"`。
+页面文档内 `<img>`（含 closed shadow）受 **页面 CSP `img-src`** 约束。overlay `<img>` 先用 `referrerpolicy="origin"`。这一下失败时，扩展带 `Referer: https://goonbox.cr/img/` 把字节取回来，再用 `blob:` 显示（图床拒绝空 Referer；页面里的图片请求也可能被拦截扩展取消）。`blob:` 被 CSP 拒绝时再试一次 `no-referrer`，然后走原来的失败 toast。
 
 ---
 
@@ -1100,7 +1100,7 @@ v1 无远程日志。
 - Background：非白名单、超大包、非 2xx → `console.warn`。
 - UI：`.spinner` 在 `resolving` 显示；`.error` 显示失败阶段；`.toast` 用于复制成功。
 
-无告警系统。Vitest：`vitest.config.ts` 在 **PR1** 落地；PR2 测 `unwrapRedirect` / `isFamilyHost` / `isGoonBoxHost` / `parseGoonBoxId` / `goonBoxIdFromUrl` / `isXfAttachmentUrl`；PR4 测 D6 全部分支（含「preview `.md.jpg` + href `/img/id` 先 strip preview」与「jpg6 `/img/` 不打 API」与「API `img.error` 不再请求」）与 `isAllowedApiUrl`。
+无告警系统。Vitest：`vitest.config.ts` 在 **PR1** 落地；PR2 测 `unwrapRedirect` / `isFamilyHost` / `isGoonBoxHost` / `parseGoonBoxId` / `goonBoxIdFromUrl` / `isXfAttachmentUrl`；PR4 测 D6 全部分支（含「preview 中图 UUID 或 `.md.jpg` + href `/img/id` 先要 `original_url`」与「jpg6 `/img/` 不打 API」与「API 失败不再请求」）与 `isAllowedApiUrl`。
 
 ---
 
@@ -1130,7 +1130,7 @@ v1 以 **未打包扩展** 分发，不走 CWS。
 - 点包裹 padding / `<a>` / DIV（未点到 img 像素）仍打开 overlay。
 - `document_start` 后、`DOMContentLoaded` 前单击：不抛错、不拦截（WeakMap 空）。
 - jpg6/jpg7 `/img/{id}`：加载原图只 strip，网络面板 **无** `goonbox.cr/api`。
-- strip candidate 404 后：至多一次同 URL 重试，然后最多一次 API；API 再 404 **停止**，不 livelock。
+- 有 goonbox id：加载原图请求 API，画面 URL 是 `original_url`，不是 medium UUID。API 失败后才 strip 一次，不再打 API。
 - 头像、表情、签名、非 `bbImage`：不进 overlay。
 - 未知图床：按钮禁用，不导航。
 - `interceptEnabled=false`：完全旁路。
@@ -1228,7 +1228,7 @@ v1 以 **未打包扩展** 分发，不走 CWS。
 - **标题：** `feat: resolve and load originals on demand`
 - **影响文件：** `src/content/original.ts`、`src/content/viewer.ts`、`src/background/index.ts`、`manifest.json`（**此时才加** `"host_permissions": ["https://goonbox.cr/*"]`）、`src/content/original.test.ts`、`src/background/*.test.ts`（若方便）
 - **依赖：** PR3
-- **说明：** D6 全部分支（与 mermaid 同边）：**preview 优先 strip**（href=/img/id + src=.md.jpg 不得先 API）；strip/`loadKind` error 表；`goonBoxIdFromUrl` 拒绝 jpg6；JSON `redirect` 白名单一跳；API error **不再**进 H；附件 `isXfAttachmentUrl`；非家族扩展名；`proxy.php`；`isSafeHttpsUrl`。UI：「加载原图」+（scale=1 时）点击画面；`gen` 取消过期 resolve；onload 才 `ready`。`open-tab` 在 `ready` 后改开 `originalUrl`，否则仍 `unwrappedHref`。Vitest 覆盖 D6 与 `isAllowedApiUrl`。不自动在 open 时加载原图。不为 pixhost/imgbox 加 host_permissions。
+- **说明：** D6 全部分支（与 mermaid 同边）：有 goonbox id 时先 API `original_url`（href=/img/id + 中图 UUID 或 `.md.jpg` 不得把中图标成原图）；无 id 才 strip；`goonBoxIdFromUrl` 拒绝 jpg6；JSON `redirect` 白名单一跳；API error **不再**进 H；附件 `isXfAttachmentUrl`；非家族扩展名；`proxy.php`；`isSafeHttpsUrl`。UI：「加载原图」+（scale=1 时）点击画面；`gen` 取消过期 resolve；onload 才 `ready`。`open-tab` 在 `ready` 后改开 `originalUrl`，否则仍 `unwrappedHref`。Vitest 覆盖 D6 与 `isAllowedApiUrl`。不自动在 open 时加载原图。不为 pixhost/imgbox 加 host_permissions。
 
 ### PR5 — 滚轮缩放 + 拖动、全屏、swipe、Fancybox 竞态
 

@@ -1,14 +1,16 @@
-import type { GalleryItem, LoadKind, ResolvePhase } from '../shared/types';
+import type { BgRequest, BgResponse, GalleryItem, LoadKind, ResolvePhase } from '../shared/types';
+import { candidateOrigins, resolveOriginalUrl } from './batch-download';
 import { getItems, onGalleryChange } from './collector';
 import {
   bytesLookLikeImage,
   copyTarget,
   ensureDownloadOriginAccess,
   fetchGoonBoxImage,
-  isSafeDownloadUrl,
+  isImageDownloadUrl,
   isSafeHttpsUrl,
   loadImageBlob,
   openTabTarget,
+  preferredOriginalUrl,
   resolveOriginal,
   suggestedDownloadFilename,
 } from './original';
@@ -100,7 +102,7 @@ function ensureHost(): NonNullable<typeof els> {
   stage.className = 'stage';
   const media = document.createElement('img');
   media.className = 'media';
-  media.referrerPolicy = 'no-referrer';
+  media.referrerPolicy = 'origin';
   media.alt = '';
   const spinner = document.createElement('div');
   spinner.className = 'spinner';
@@ -139,7 +141,7 @@ function ensureHost(): NonNullable<typeof els> {
   });
   loadOriginal.addEventListener('click', (e) => {
     e.stopPropagation();
-    void loadOriginalNow();
+    beginOriginalLoad();
   });
   fullscreen.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -181,7 +183,18 @@ function ensureHost(): NonNullable<typeof els> {
       return;
     }
     const nextIdx = list.indexOf(item);
-    index = nextIdx >= 0 ? nextIdx : Math.min(index, list.length - 1);
+    if (nextIdx >= 0) {
+      index = nextIdx;
+      if (els) els.counter.textContent = `${index + 1} / ${list.length}`;
+      // A busy thread rewrites img src/class constantly. Re-rendering here
+      // bumps loadGen and puts the preview back, so the API result is dropped.
+      if (item.originalState === 'resolving' || item.originalState === 'ready') {
+        updateLoadButton();
+        return;
+      }
+    } else {
+      index = Math.min(index, list.length - 1);
+    }
     render(false);
   });
 
@@ -345,7 +358,7 @@ function onPointerUp(ev: PointerEvent): void {
     if (p.onMedia) {
       const item = currentItem();
       if (item && item.originalState !== 'ready' && item.originalState !== 'unavailable') {
-        void loadOriginalNow();
+        beginOriginalLoad();
       }
     } else {
       closeViewer();
@@ -409,33 +422,12 @@ async function copyUrl(): Promise<void> {
   }
 }
 
-async function blobFromDisplayedImage(): Promise<Blob | null> {
-  const img = els?.media;
-  if (!img || !img.naturalWidth) return null;
-  try {
-    const canvas = document.createElement('canvas');
-    canvas.width = img.naturalWidth;
-    canvas.height = img.naturalHeight;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-    ctx.drawImage(img, 0, 0);
-    return await new Promise((resolve) => {
-      canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.95);
-    });
-  } catch {
-    return null;
-  }
-}
-
-async function getImageBlob(url: string): Promise<Blob | null> {
-  const blob = await loadImageBlob(url);
-  if (blob) return blob;
-  return blobFromDisplayedImage();
-}
-
 async function saveImageAs(): Promise<void> {
-  const url = els?.media.currentSrc || els?.media.src || '';
-  if (!isSafeDownloadUrl(url)) {
+  const item = currentItem();
+  if (!item) return;
+  requestImageAccess();
+  const url = await resolveOriginalUrl(item);
+  if (!url || !isImageDownloadUrl(url)) {
     showToast('没有可保存的图片');
     return;
   }
@@ -460,7 +452,7 @@ async function saveImageAs(): Promise<void> {
     showToast('当前浏览器不支持另存为');
     return;
   }
-  const blobPromise = getImageBlob(url);
+  const blobPromise = loadImageBlob(url);
   try {
     const handle = await picker({
       id: 'goonview-save',
@@ -528,7 +520,7 @@ function preloadNeighbors(): void {
     const it = list[index + d] ?? list[(index + d + list.length) % list.length];
     if (!it) continue;
     const img = new Image();
-    img.referrerPolicy = 'no-referrer';
+    img.referrerPolicy = 'origin';
     img.src = it.previewUrl;
   }
 }
@@ -546,9 +538,9 @@ function render(resetZoom: boolean): void {
   retriedSame = false;
   setBusy(false);
   if (item.originalState === 'ready' && item.originalUrl) {
-    ui.media.src = item.originalUrl;
+    assignMedia(item.originalUrl);
   } else {
-    ui.media.src = item.previewUrl;
+    assignMedia(item.previewUrl);
   }
   updateLoadButton();
   preloadNeighbors();
@@ -572,26 +564,116 @@ function fail(reason: string): void {
 function onMediaLoad(): void {
   const item = currentItem();
   if (!item || !els) return;
-  if (loadKind && item.originalState === 'resolving') {
-    item.originalUrl = els.media.currentSrc || els.media.src;
-    item.originalState = 'ready';
-    setBusy(false);
-    updateLoadButton();
-  }
+  if (!acceptOriginalLoad || !loadKind || item.originalState !== 'resolving') return;
+  const shown = els.media.currentSrc || els.media.src;
+  if (!isSafeHttpsUrl(mediaHttpsUrl)) return;
+  if (!shown.startsWith('blob:') && shown !== mediaHttpsUrl) return;
+  acceptOriginalLoad = false;
+  item.originalUrl = mediaHttpsUrl;
+  item.originalState = 'ready';
+  setBusy(false);
+  updateLoadButton();
 }
 
-function onMediaError(): void {
+let suppressMediaError = false;
+let mediaHttpsUrl = '';
+/** True only after assignMedia for a resolved original, not for the preview. */
+let acceptOriginalLoad = false;
+let activeBlobUrl: string | null = null;
+let accessPromise: Promise<boolean> = Promise.resolve(false);
+/** Page image with forum Referer, then extension bytes, then a no-referrer image. */
+let loadAttempt: 'origin' | 'blob' | 'omit' = 'origin';
+
+function revokeBlob(): void {
+  if (!activeBlobUrl) return;
+  URL.revokeObjectURL(activeBlobUrl);
+  activeBlobUrl = null;
+}
+
+function requestImageAccess(): void {
   const item = currentItem();
-  if (!item || !els) return;
-  if (!loadKind) {
-    setBusy(false, 'csp-or-hotlink');
+  if (!item) return;
+  const origins = candidateOrigins([item]);
+  if (origins.length === 0) {
+    accessPromise = Promise.resolve(false);
     return;
   }
-  if (!retriedSame) {
-    retriedSame = true;
-    const url = els.media.src;
-    els.media.removeAttribute('src');
-    els.media.src = url;
+  const chromeApi = (globalThis as { chrome?: typeof chrome }).chrome;
+  if (chromeApi?.permissions?.request) {
+    accessPromise = chromeApi.permissions.request({ origins }).catch(() => false);
+    return;
+  }
+  const runtime = chromeApi?.runtime;
+  if (!runtime?.sendMessage) {
+    accessPromise = Promise.resolve(false);
+    return;
+  }
+  accessPromise = runtime
+    .sendMessage<BgRequest, BgResponse>({ type: 'ENSURE_BATCH_ACCESS', origins })
+    .then((res) => Boolean(res?.ok))
+    .catch(() => false);
+}
+
+function beginOriginalLoad(): void {
+  requestImageAccess();
+  void loadOriginalNow();
+}
+
+function assignMedia(url: string): void {
+  if (!els) return;
+  revokeBlob();
+  mediaHttpsUrl = url;
+  loadAttempt = 'origin';
+  acceptOriginalLoad = loadKind !== null;
+  // cuckcapital returns 403 with no Referer and 200 for the forum origin.
+  els.media.referrerPolicy = 'origin';
+  retriedSame = false;
+  els.media.src = url;
+}
+
+function showHttpsWithoutReferrer(): void {
+  if (!els) return;
+  loadAttempt = 'omit';
+  suppressMediaError = true;
+  els.media.referrerPolicy = 'no-referrer';
+  els.media.removeAttribute('src');
+  els.media.src = mediaHttpsUrl || els.media.src;
+  suppressMediaError = false;
+}
+
+async function onMediaError(): Promise<void> {
+  if (suppressMediaError) return;
+  const item = currentItem();
+  if (!item || !els) return;
+  const gen = loadGen;
+  const https = mediaHttpsUrl;
+
+  if (loadAttempt === 'origin') {
+    if (loadKind && isSafeHttpsUrl(https)) {
+      loadAttempt = 'blob';
+      await accessPromise;
+      if (gen !== loadGen || currentItem() !== item || !els) return;
+      const blob = await loadImageBlob(https);
+      if (gen !== loadGen || currentItem() !== item || !els) return;
+      if (blob) {
+        revokeBlob();
+        activeBlobUrl = URL.createObjectURL(blob);
+        els.media.src = activeBlobUrl;
+        return;
+      }
+    }
+    showHttpsWithoutReferrer();
+    return;
+  }
+
+  if (loadAttempt === 'blob') {
+    showHttpsWithoutReferrer();
+    return;
+  }
+
+  els.media.referrerPolicy = 'origin';
+  if (!loadKind) {
+    setBusy(false, 'csp-or-hotlink');
     return;
   }
   if (loadKind === 'strip') {
@@ -599,7 +681,12 @@ function onMediaError(): void {
     void continueAfter('after-strip-error');
     return;
   }
-  fail(loadKind === 'api' ? 'api-error-stop' : 'strip-404');
+  if (loadKind === 'api') {
+    retriedSame = false;
+    void continueAfter('after-api-error');
+    return;
+  }
+  fail('strip-404');
 }
 
 async function continueAfter(phase: ResolvePhase): Promise<void> {
@@ -627,20 +714,18 @@ async function applyResult(
     const res = await fetchGoonBoxImage(result.id);
     if (gen !== loadGen || currentItem() !== item) return;
     if (!res.ok) {
-      fail('api');
+      await continueAfter('after-api-error');
       return;
     }
-    const url = res.data?.image?.original_url ?? res.data?.image?.url;
-    if (!isSafeHttpsUrl(url)) {
-      fail('https-check');
+    const url = preferredOriginalUrl(res.data);
+    if (!url) {
+      await continueAfter('after-api-error');
       return;
     }
-    retriedSame = false;
-    els.media.src = url;
+    assignMedia(url);
     return;
   }
-  retriedSame = false;
-  els.media.src = result.url;
+  assignMedia(result.url);
 }
 
 async function loadOriginalNow(): Promise<void> {
@@ -659,7 +744,11 @@ async function loadOriginalNow(): Promise<void> {
     fail('strip-404');
     return;
   }
-  await applyResult(item, gen, result);
+  try {
+    await applyResult(item, gen, result);
+  } catch {
+    if (gen === loadGen && currentItem() === item) fail('api');
+  }
 }
 
 export function openViewer(item: GalleryItem): void {
@@ -687,6 +776,7 @@ export function closeViewer(): void {
   loadGen += 1;
   resetPageWheel();
   resetTransform();
+  revokeBlob();
   if (els) {
     els.media.removeAttribute('src');
     setBusy(false);

@@ -69,6 +69,49 @@ describe('resolveOriginalUrl', () => {
     expect(loadApi).not.toHaveBeenCalled();
     expect(pic.originalState).toBe('idle');
   });
+
+  it('downloads API original_url instead of the medium UUID', async () => {
+    const medium = 'https://simp6.cuckcapital.cr/images4/2dca4818-c0ab-463f-8d48-0fa6ab908b1f.jpg';
+    const original = 'https://simp6.cuckcapital.cr/images4/49f34841-0374-431e-bebf-ec3172e4713e.jpg';
+    const pic = item(medium, { unwrappedHref: 'https://goonbox.cr/img/tdd6IOy' });
+    const loadApi = vi.fn(async () => ({
+      ok: true as const,
+      data: { image: { original_url: original, medium_url: medium, url: '' } },
+    }));
+    expect(await resolveOriginalUrl(pic, loadApi)).toBe(original);
+    expect(loadApi).toHaveBeenCalledWith('tdd6IOy');
+    expect(pic.originalUrl).toBe(original);
+  });
+
+  it('does not keep a ready url that is only the medium preview', async () => {
+    const medium = 'https://simp6.cuckcapital.cr/images4/2dca4818-c0ab-463f-8d48-0fa6ab908b1f.jpg';
+    const original = 'https://simp6.cuckcapital.cr/images4/49f34841-0374-431e-bebf-ec3172e4713e.jpg';
+    const pic = item(medium, {
+      unwrappedHref: 'https://goonbox.cr/img/tdd6IOy',
+      originalUrl: medium,
+      originalState: 'ready',
+      apiAttempted: true,
+    });
+    const loadApi = vi.fn(async () => ({
+      ok: true as const,
+      data: { image: { original_url: original, medium_url: medium, url: '' } },
+    }));
+    expect(await resolveOriginalUrl(pic, loadApi)).toBe(original);
+    expect(loadApi).toHaveBeenCalledTimes(1);
+  });
+
+  it('reuses a cached original that is not the preview', async () => {
+    const medium = 'https://simp6.cuckcapital.cr/images4/2dca4818-c0ab-463f-8d48-0fa6ab908b1f.jpg';
+    const original = 'https://simp6.cuckcapital.cr/images4/49f34841-0374-431e-bebf-ec3172e4713e.jpg';
+    const pic = item(medium, {
+      unwrappedHref: 'https://goonbox.cr/img/tdd6IOy',
+      originalUrl: original,
+      originalState: 'ready',
+    });
+    const loadApi = vi.fn();
+    expect(await resolveOriginalUrl(pic, loadApi)).toBe(original);
+    expect(loadApi).not.toHaveBeenCalled();
+  });
 });
 
 describe('runBatch', () => {
@@ -180,5 +223,16 @@ describe('ensureBatchAccess', () => {
     expect(sent).toEqual([
       { type: 'ENSURE_BATCH_ACCESS', origins: ['https://*.cuckcapital.cr/*'] },
     ]);
+  });
+
+  it('returns false when runtime is gone', async () => {
+    const previous = (globalThis as { chrome?: unknown }).chrome;
+    (globalThis as { chrome?: unknown }).chrome = {};
+    try {
+      await expect(ensureBatchAccess(['https://*.cuckcapital.cr/*'])).resolves.toBe(false);
+    } finally {
+      if (previous === undefined) delete (globalThis as { chrome?: unknown }).chrome;
+      else (globalThis as { chrome?: unknown }).chrome = previous;
+    }
   });
 });

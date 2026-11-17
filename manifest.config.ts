@@ -5,7 +5,7 @@ export default defineManifest({
   name: 'GoonView',
   version: '0.2.0',
   description: 'In-page Telegram-style image viewer for simpcity.cr',
-  permissions: ['storage'],
+  permissions: ['storage', 'declarativeNetRequestWithHostAccess'],
   optional_permissions: ['downloads'],
   host_permissions: ['https://goonbox.cr/*'],
   // CRXJS ManifestV3 type omits this key; Chrome MV3 accepts it.

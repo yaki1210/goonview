@@ -47,7 +47,7 @@ Left-click a post thumbnail (`img.bbImage` inside `.message-userContent`). The o
 | Middle click, or Ctrl / Cmd / Shift + click | Browser’s own new tab |
 | Open-in-tab button | Leave the thread on purpose |
 | Copy button | Copy the image link |
-| Save button | System save dialog for the picture on screen |
+| Save button | Save the original file, not the medium on screen |
 
 ### Select and save
 
@@ -68,6 +68,7 @@ turbo.cr embeds in a post are drawn at twice the site’s layout size. Playback 
 | Permission | Why |
 | --- | --- |
 | `storage` | The two options switches |
+| `declarativeNetRequestWithHostAccess` | Send `Referer: https://goonbox.cr/img/` when saving original bytes. The CDN rejects a missing Referer. |
 | `https://goonbox.cr/*` | GoonBox image API when you load an original |
 
 Save As and batch save may ask, once, for the image host (`*.cuckcapital.cr`, `*.selti-delivery.ru`, or `simpcity.cr`). That permission is optional so browsing does not treat thumbnail CDNs as extension-accessible. Chrome would otherwise refetch every cached thumbnail on refresh.
